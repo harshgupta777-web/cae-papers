@@ -1,69 +1,517 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { supabase, MATERIAL_TYPES, EXAM_TYPES, labelOf } from "@/lib/supabase";
+import SiteHeader from "@/components/SiteHeader";
+import SiteFooter from "@/components/SiteFooter";
+
+type Row = Record<string, any>;
+
+const CARDS = [
+  {
+    type: "paper",
+    title: "Question papers",
+    desc: "CAE 1, CAE 2, end semester and external papers, year by year.",
+  },
+  {
+    type: "answer_pdf",
+    title: "Answer PDFs",
+    desc: "Written solutions to match the papers you are practising.",
+  },
+  {
+    type: "important_questions",
+    title: "Important questions",
+    desc: "The repeated and most expected questions, view only.",
+  },
+  {
+    type: "notes",
+    title: "Notes",
+    desc: "Unit wise notes for quick revision before the exam.",
+  },
+  {
+    type: "syllabus",
+    title: "Syllabus",
+    desc: "Know exactly what is in scope for each subject.",
+  },
+  {
+    type: "practical",
+    title: "Practical files",
+    desc: "Lab work and practical records for your semester.",
+  },
+];
+
+export default function HomePage() {
+  const router = useRouter();
+
+  const [q, setQ] = useState("");
+
+  const [universities, setUniversities] = useState<Row[]>([]);
+  const [colleges, setColleges] = useState<Row[]>([]);
+  const [branches, setBranches] = useState<Row[]>([]);
+  const [semesters, setSemesters] = useState<Row[]>([]);
+  const [subjects, setSubjects] = useState<Row[]>([]);
+
+  const [uniId, setUniId] = useState("");
+  const [collegeId, setCollegeId] = useState("");
+  const [branchId, setBranchId] = useState("");
+  const [semesterId, setSemesterId] = useState("");
+  const [subjectId, setSubjectId] = useState("");
+  const [examType, setExamType] = useState("");
+
+  const [recent, setRecent] = useState<Row[]>([]);
+
+  useEffect(() => {
+    async function init() {
+      const { data } = await supabase
+        .from("universities")
+        .select("id, name, short_name")
+        .eq("is_active", true)
+        .order("name");
+      setUniversities(data ?? []);
+
+      const { data: latest } = await supabase
+        .from("materials")
+        .select(
+          "id, title, material_type, exam_type, academic_year, subjects!materials_subject_id_fkey(name, subject_code)"
+        )
+        .eq("is_published", true)
+        .order("created_at", { ascending: false })
+        .limit(6);
+      setRecent(latest ?? []);
+    }
+    init();
+  }, []);
+
+  useEffect(() => {
+    setCollegeId("");
+    setBranchId("");
+    setSemesterId("");
+    setSubjectId("");
+    setBranches([]);
+    setSemesters([]);
+    setSubjects([]);
+    if (!uniId) return setColleges([]);
+    supabase
+      .from("colleges")
+      .select("id, name, city")
+      .eq("university_id", uniId)
+      .eq("is_active", true)
+      .order("name")
+      .then(({ data }) => setColleges(data ?? []));
+  }, [uniId]);
+
+  useEffect(() => {
+    setBranchId("");
+    setSemesterId("");
+    setSubjectId("");
+    setSemesters([]);
+    setSubjects([]);
+    if (!collegeId) return setBranches([]);
+    supabase
+      .from("branches")
+      .select("id, name")
+      .eq("college_id", collegeId)
+      .eq("is_active", true)
+      .order("name")
+      .then(({ data }) => setBranches(data ?? []));
+  }, [collegeId]);
+
+  useEffect(() => {
+    setSemesterId("");
+    setSubjectId("");
+    setSubjects([]);
+    if (!branchId) return setSemesters([]);
+    supabase
+      .from("semesters")
+      .select("id, name, semester_number")
+      .eq("branch_id", branchId)
+      .eq("is_active", true)
+      .order("semester_number")
+      .then(({ data }) => setSemesters(data ?? []));
+  }, [branchId]);
+
+  useEffect(() => {
+    setSubjectId("");
+    if (!semesterId) return setSubjects([]);
+    supabase
+      .from("subjects")
+      .select("id, name, subject_code")
+      .eq("semester_id", semesterId)
+      .eq("is_active", true)
+      .order("name")
+      .then(({ data }) => setSubjects(data ?? []));
+  }, [semesterId]);
+
+  function runSearch(e: React.FormEvent) {
+    e.preventDefault();
+    if (!q.trim()) return;
+    router.push("/search?q=" + encodeURIComponent(q.trim()));
+  }
+
+  function runFilters() {
+    const params = new URLSearchParams();
+    if (subjectId) params.set("subject", subjectId);
+    else if (semesterId) params.set("semester", semesterId);
+    else if (branchId) params.set("branch", branchId);
+    else if (collegeId) params.set("college", collegeId);
+    else if (uniId) params.set("university", uniId);
+    if (examType) params.set("exam", examType);
+    router.push("/search?" + params.toString());
+  }
+
+  const steps = [
+    {
+      n: 1,
+      label: "University",
+      value: uniId,
+      set: setUniId,
+      rows: universities,
+      disabled: false,
+      render: (r: Row) => r.name,
+    },
+    {
+      n: 2,
+      label: "College",
+      value: collegeId,
+      set: setCollegeId,
+      rows: colleges,
+      disabled: !uniId,
+      render: (r: Row) => r.name + (r.city ? " - " + r.city : ""),
+    },
+    {
+      n: 3,
+      label: "Course and branch",
+      value: branchId,
+      set: setBranchId,
+      rows: branches,
+      disabled: !collegeId,
+      render: (r: Row) => r.name,
+    },
+    {
+      n: 4,
+      label: "Semester",
+      value: semesterId,
+      set: setSemesterId,
+      rows: semesters,
+      disabled: !branchId,
+      render: (r: Row) => r.name,
+    },
+    {
+      n: 5,
+      label: "Subject",
+      value: subjectId,
+      set: setSubjectId,
+      rows: subjects,
+      disabled: !semesterId,
+      render: (r: Row) =>
+        r.name + (r.subject_code ? " - " + r.subject_code : ""),
+    },
+  ];
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <div className="flex min-h-screen flex-col">
+      <SiteHeader dark />
+
+      <main className="flex-1">
+        {/* ---------------- HERO ---------------- */}
+        <section className="relative overflow-hidden bg-[#0b1020] text-white">
+          <div className="grid-bg absolute inset-0" />
+          <div
+            className="glow"
+            style={{
+              width: 520,
+              height: 520,
+              background: "#4f46e5",
+              top: -180,
+              left: -80,
+            }}
+          />
+          <div
+            className="glow"
+            style={{
+              width: 420,
+              height: 420,
+              background: "#7c3aed",
+              bottom: -200,
+              right: -60,
+            }}
+          />
+
+          <div className="relative mx-auto max-w-6xl px-5 pb-24 pt-20 sm:pt-24">
+            <div className="rise rise-1 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-xs text-slate-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              Built for college students
+            </div>
+
+            <h1 className="rise rise-2 mt-7 max-w-3xl text-[2.6rem] font-semibold leading-[1.08] tracking-tight sm:text-6xl">
+              Every paper, answer and
+              <span className="bg-gradient-to-r from-indigo-300 via-violet-300 to-sky-300 bg-clip-text text-transparent">
+                {" "}
+                important question
+              </span>
+              , in one place.
+            </h1>
+
+            <p className="rise rise-3 mt-6 max-w-xl text-[15px] leading-relaxed text-slate-400">
+              Search by paper code or subject name, or walk down from your
+              university to your exact semester. No dead ends, no clutter.
+            </p>
+
+            <form
+              onSubmit={runSearch}
+              className="rise rise-4 mt-9 flex max-w-2xl flex-col gap-3 sm:flex-row"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+              <div className="relative flex-1">
+                <input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="Try BCS402, Engineering Mathematics, or CAE 1"
+                  className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3.5 text-sm text-white placeholder:text-slate-500 outline-none transition focus:border-indigo-400/60 focus:bg-white/10"
+                />
+              </div>
+              <button
+                type="submit"
+                className="rounded-xl bg-white px-7 py-3.5 text-sm font-semibold text-[#0b1020] transition hover:bg-slate-200"
+              >
+                Search
+              </button>
+            </form>
+
+            <div className="rise rise-4 mt-4 flex flex-wrap gap-2">
+              {["CAE 1", "CAE 2", "Engineering Mathematics", "Physics"].map(
+                (t) => (
+                  <button
+                    key={t}
+                    onClick={() =>
+                      router.push("/search?q=" + encodeURIComponent(t))
+                    }
+                    className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 transition hover:border-white/25 hover:text-white"
+                  >
+                    {t}
+                  </button>
+                )
+              )}
+            </div>
+          </div>
+
+          <div className="relative h-16 bg-gradient-to-b from-transparent to-white" />
+        </section>
+
+        {/* ---------------- STEP BROWSER ---------------- */}
+        <section className="mx-auto -mt-10 max-w-6xl px-5">
+          <div className="relative rounded-3xl border border-slate-200 bg-white p-7 shadow-[0_30px_70px_-40px_rgba(11,16,32,0.4)] sm:p-9">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold tracking-tight">
+                  Find it step by step
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Each dropdown only shows what actually exists.
+                </p>
+              </div>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-500">
+                {universities.length} universities
+              </span>
+            </div>
+
+            <div className="mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {steps.map((s) => (
+                <label key={s.n} className="block">
+                  <span className="mb-1.5 flex items-center gap-2 text-xs font-medium text-slate-500">
+                    <span
+                      className={
+                        "flex h-4.5 w-4.5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                        (s.value
+                          ? "bg-indigo-600 text-white"
+                          : "bg-slate-200 text-slate-600")
+                      }
+                      style={{ height: 18, width: 18 }}
+                    >
+                      {s.n}
+                    </span>
+                    {s.label}
+                  </span>
+                  <select
+                    value={s.value}
+                    onChange={(e) => s.set(e.target.value)}
+                    disabled={s.disabled}
+                    className="field"
+                  >
+                    <option value="">
+                      {s.disabled ? "Choose the step above" : "Select " + s.label.toLowerCase()}
+                    </option>
+                    {s.rows.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {s.render(r)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+
+              <label className="block">
+                <span className="mb-1.5 flex items-center gap-2 text-xs font-medium text-slate-500">
+                  <span
+                    className="flex items-center justify-center rounded-full bg-slate-200 text-[10px] font-semibold text-slate-600"
+                    style={{ height: 18, width: 18 }}
+                  >
+                    6
+                  </span>
+                  Exam (optional)
+                </span>
+                <select
+                  value={examType}
+                  onChange={(e) => setExamType(e.target.value)}
+                  className="field"
+                >
+                  <option value="">Any exam</option>
+                  {EXAM_TYPES.map((x) => (
+                    <option key={x.value} value={x.value}>
+                      {x.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="mt-7 flex flex-wrap items-center gap-4">
+              <button
+                onClick={runFilters}
+                disabled={!uniId}
+                className="btn-primary"
+              >
+                Show materials
+              </button>
+              <span className="text-xs text-slate-500">
+                You can stop at any level and still see everything inside it.
+              </span>
+            </div>
+          </div>
+        </section>
+
+        {/* ---------------- CATEGORY CARDS ---------------- */}
+        <section className="mx-auto max-w-6xl px-5 py-20">
+          <h2 className="text-2xl font-semibold tracking-tight">
+            What you will find inside
+          </h2>
+          <p className="mt-2 text-sm text-slate-500">
+            Six kinds of material, each one tagged by exam and year.
           </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
+
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {CARDS.map((c, i) => (
+              <Link
+                key={c.type}
+                href={"/search?type=" + c.type}
+                className="lift group rounded-2xl border border-slate-200 bg-white p-6"
+              >
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 text-sm font-semibold text-slate-700">
+                  {String(i + 1).padStart(2, "0")}
+                </span>
+                <p className="mt-5 text-[15px] font-semibold">{c.title}</p>
+                <p className="mt-2 text-sm leading-relaxed text-slate-500">
+                  {c.desc}
+                </p>
+                <p className="mt-5 text-xs font-medium text-indigo-600 opacity-0 transition group-hover:opacity-100">
+                  Browse
+                </p>
+              </Link>
+            ))}
+          </div>
+        </section>
+
+        {/* ---------------- RECENT ---------------- */}
+        {recent.length > 0 && (
+          <section className="border-y border-slate-200 bg-slate-50">
+            <div className="mx-auto max-w-6xl px-5 py-16">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <h2 className="text-2xl font-semibold tracking-tight">
+                  Recently added
+                </h2>
+                <Link
+                  href="/search"
+                  className="text-sm font-medium text-indigo-600 hover:underline"
+                >
+                  Browse all
+                </Link>
+              </div>
+
+              <div className="mt-8 grid gap-3 sm:grid-cols-2">
+                {recent.map((m) => (
+                  <Link
+                    key={m.id}
+                    href={"/view/" + m.id}
+                    className="lift rounded-2xl border border-slate-200 bg-white p-5"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold">{m.title}</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {m.subjects?.name}
+                          {m.subjects?.subject_code
+                            ? " - " + m.subjects.subject_code
+                            : ""}
+                        </p>
+                      </div>
+                      <span className="whitespace-nowrap rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700">
+                        {labelOf(MATERIAL_TYPES, m.material_type)}
+                      </span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ---------------- TRUST ---------------- */}
+        <section className="mx-auto max-w-6xl px-5 py-20">
+          <div className="relative overflow-hidden rounded-3xl bg-[#0b1020] px-8 py-14 text-white sm:px-14">
+            <div className="grid-bg absolute inset-0 opacity-60" />
+            <div
+              className="glow"
+              style={{
+                width: 380,
+                height: 380,
+                background: "#4f46e5",
+                top: -140,
+                right: -60,
+              }}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+            <div className="relative max-w-2xl">
+              <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+                Online viewing, by design
+              </h2>
+              <p className="mt-4 text-sm leading-relaxed text-slate-400">
+                Every PDF sits in private storage. When you open one, the site
+                creates a temporary link that expires on its own, so material
+                stays here instead of spreading around as forwarded files.
+              </p>
+              <div className="mt-8 grid gap-4 sm:grid-cols-3">
+                {[
+                  ["Private storage", "No permanent file links"],
+                  ["Expiring links", "Generated only when you open a paper"],
+                  ["Curated content", "Nothing appears until it is approved"],
+                ].map(([t, d]) => (
+                  <div
+                    key={t}
+                    className="rounded-2xl border border-white/10 bg-white/5 p-5"
+                  >
+                    <p className="text-sm font-semibold">{t}</p>
+                    <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
+                      {d}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
       </main>
+
+      <SiteFooter />
     </div>
   );
 }
