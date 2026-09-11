@@ -10,6 +10,7 @@ import {
   labelOf,
 } from "@/lib/supabase";
 import SiteHeader from "@/components/SiteHeader";
+import { trackEvent } from "@/lib/analytics";
 
 type Row = Record<string, any>;
 
@@ -86,7 +87,11 @@ export default function ViewMaterialPage() {
       supabase.rpc("increment_material_view", {
         material_id: id,
       });
-
+      trackEvent({
+      event_type: "pdf_view",
+       material_id: id,
+       page_path: "/view/" + id,
+      });
       setLoading(false);
     }
 
@@ -203,10 +208,17 @@ export default function ViewMaterialPage() {
                   </p>
 
                   <a
-                    href={url.split("#")[0]}
-                    download
-                    target="_blank"
-                    rel="noopener noreferrer"
+                     href={url.split("#")[0]}
+                     download
+                     target="_blank"
+                     rel="noopener noreferrer"
+                     onClick={() => {
+                     trackEvent({
+                     event_type: "pdf_download",
+                     material_id: material.id,
+                     page_path: "/view/" + material.id,
+                     });
+                      }}
                     className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
                   >
                     📥 Download PDF

@@ -3,9 +3,15 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { supabase, MATERIAL_TYPES, EXAM_TYPES, labelOf } from "@/lib/supabase";
+import {
+  supabase,
+  MATERIAL_TYPES,
+  EXAM_TYPES,
+  labelOf,
+} from "@/lib/supabase";
 import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
+import { trackEvent } from "@/lib/analytics";
 
 type Row = Record<string, any>;
 
@@ -63,6 +69,7 @@ function Results() {
         const semesterMatches = normalized.matchAll(
           /\b(?:sem|semester)\s*[-:]?\s*([1-8])\b/g
         );
+
         for (const match of semesterMatches) {
           semesterNumbers.add(Number(match[1]));
         }
@@ -88,25 +95,41 @@ function Results() {
 
         // Exam aliases.
         let detectedExam = exam;
+
         if (!detectedExam) {
-          if (/\bcae\s*1\b|\bcae1\b/.test(normalized)) detectedExam = "cae1";
-          else if (/\bcae\s*2\b|\bcae2\b/.test(normalized)) detectedExam = "cae2";
-          else if (/\bmid\s*[- ]?sem(?:ester)?\b/.test(normalized)) detectedExam = "mid_sem";
-          else if (/\bend\s*[- ]?sem(?:ester)?\b/.test(normalized)) detectedExam = "end_sem";
-          else if (/\bexternal\b/.test(normalized)) detectedExam = "external";
-          else if (/\binternal\b/.test(normalized)) detectedExam = "internal";
-          else if (/\bpractical\b/.test(normalized)) detectedExam = "practical";
-          else if (/\bassignment\b/.test(normalized)) detectedExam = "assignment";
+          if (/\bcae\s*1\b|\bcae1\b/.test(normalized))
+            detectedExam = "cae1";
+          else if (/\bcae\s*2\b|\bcae2\b/.test(normalized))
+            detectedExam = "cae2";
+          else if (/\bmid\s*[- ]?sem(?:ester)?\b/.test(normalized))
+            detectedExam = "mid_sem";
+          else if (/\bend\s*[- ]?sem(?:ester)?\b/.test(normalized))
+            detectedExam = "end_sem";
+          else if (/\bexternal\b/.test(normalized))
+            detectedExam = "external";
+          else if (/\binternal\b/.test(normalized))
+            detectedExam = "internal";
+          else if (/\bpractical\b/.test(normalized))
+            detectedExam = "practical";
+          else if (/\bassignment\b/.test(normalized))
+            detectedExam = "assignment";
         }
 
         // Material aliases.
         let detectedType = type;
+
         if (!detectedType) {
-          if (/\bquestion\s*paper\b|\bquestion\s*papers\b/.test(normalized)) {
+          if (
+            /\bquestion\s*paper\b|\bquestion\s*papers\b/.test(normalized)
+          ) {
             detectedType = "paper";
-          } else if (/\banswer(?:s)?\b|\bsolution(?:s)?\b/.test(normalized)) {
+          } else if (
+            /\banswer(?:s)?\b|\bsolution(?:s)?\b/.test(normalized)
+          ) {
             detectedType = "answer_pdf";
-          } else if (/\bimportant\s*questions?\b/.test(normalized)) {
+          } else if (
+            /\bimportant\s*questions?\b/.test(normalized)
+          ) {
             detectedType = "important_questions";
           } else if (/\bnotes?\b/.test(normalized)) {
             detectedType = "notes";
@@ -118,18 +141,68 @@ function Results() {
         }
 
         // Academic year, e.g. "2024" or "2024-25".
-        const academicYearMatch = normalized.match(/\b(20\d{2}(?:[-/]\d{2,4})?)\b/);
+        const academicYearMatch = normalized.match(
+          /\b(20\d{2}(?:[-/]\d{2,4})?)\b/
+        );
         const detectedAcademicYear = academicYearMatch?.[1] ?? "";
 
         const stopWords = new Set([
-          "a", "an", "the", "for", "of", "in", "on", "to", "and", "or",
-          "show", "find", "give", "me", "please", "want", "need", "all",
-          "get", "search", "looking", "look", "with", "from", "my",
-          "paper", "papers", "question", "questions", "questionpaper",
-          "questionpapers", "answer", "answers", "solution", "solutions",
-          "notes", "note", "syllabus", "practical", "lab", "cae", "mid",
-          "semester", "sem", "year", "first", "second", "third", "fourth",
-          "1st", "2nd", "3rd", "4th", "external", "internal", "assignment",
+          "a",
+          "an",
+          "the",
+          "for",
+          "of",
+          "in",
+          "on",
+          "to",
+          "and",
+          "or",
+          "show",
+          "find",
+          "give",
+          "me",
+          "please",
+          "want",
+          "need",
+          "all",
+          "get",
+          "search",
+          "looking",
+          "look",
+          "with",
+          "from",
+          "my",
+          "paper",
+          "papers",
+          "question",
+          "questions",
+          "questionpaper",
+          "questionpapers",
+          "answer",
+          "answers",
+          "solution",
+          "solutions",
+          "notes",
+          "note",
+          "syllabus",
+          "practical",
+          "lab",
+          "cae",
+          "mid",
+          "semester",
+          "sem",
+          "year",
+          "first",
+          "second",
+          "third",
+          "fourth",
+          "1st",
+          "2nd",
+          "3rd",
+          "4th",
+          "external",
+          "internal",
+          "assignment",
         ]);
 
         const tokens = normalized
@@ -159,7 +232,9 @@ function Results() {
             .from("subjects")
             .select("id")
             .eq("semester_id", semester);
+
           if (subjectError) throw subjectError;
+
           navigationSubjectIds = (data ?? []).map((r: Row) => r.id);
         } else if (branch) {
           let semQuery = supabase
@@ -167,10 +242,14 @@ function Results() {
             .select("id")
             .eq("branch_id", branch);
 
-          if (year) semQuery = semQuery.eq("year_number", Number(year));
+          if (year) {
+            semQuery = semQuery.eq("year_number", Number(year));
+          }
 
           const { data: sems, error: semError } = await semQuery;
+
           if (semError) throw semError;
+
           const semIds = (sems ?? []).map((r: Row) => r.id);
 
           if (semIds.length === 0) {
@@ -180,7 +259,9 @@ function Results() {
               .from("subjects")
               .select("id")
               .in("semester_id", semIds);
+
             if (subjectError) throw subjectError;
+
             navigationSubjectIds = (data ?? []).map((r: Row) => r.id);
           }
         } else if (college || university) {
@@ -191,14 +272,18 @@ function Results() {
               .from("branches")
               .select("id")
               .eq("college_id", college);
+
             if (branchError) throw branchError;
+
             branchIds = (data ?? []).map((r: Row) => r.id);
           } else {
             const { data: cols, error: collegeError } = await supabase
               .from("colleges")
               .select("id")
               .eq("university_id", university);
+
             if (collegeError) throw collegeError;
+
             const colIds = (cols ?? []).map((r: Row) => r.id);
 
             if (colIds.length > 0) {
@@ -206,7 +291,9 @@ function Results() {
                 .from("branches")
                 .select("id")
                 .in("college_id", colIds);
+
               if (branchError) throw branchError;
+
               branchIds = (data ?? []).map((r: Row) => r.id);
             }
           }
@@ -219,10 +306,14 @@ function Results() {
               .select("id")
               .in("branch_id", branchIds);
 
-            if (year) semQuery = semQuery.eq("year_number", Number(year));
+            if (year) {
+              semQuery = semQuery.eq("year_number", Number(year));
+            }
 
             const { data: sems, error: semError } = await semQuery;
+
             if (semError) throw semError;
+
             const semIds = (sems ?? []).map((r: Row) => r.id);
 
             if (semIds.length === 0) {
@@ -232,7 +323,9 @@ function Results() {
                 .from("subjects")
                 .select("id")
                 .in("semester_id", semIds);
+
               if (subjectError) throw subjectError;
+
               navigationSubjectIds = (data ?? []).map((r: Row) => r.id);
             }
           }
@@ -247,12 +340,27 @@ function Results() {
           let semesterQuery = supabase
             .from("semesters")
             .select("id")
-            .in("semester_number", Array.from(semesterNumbers));
+            .in(
+              "semester_number",
+              Array.from(semesterNumbers)
+            );
 
-          if (branch) semesterQuery = semesterQuery.eq("branch_id", branch);
-          if (year) semesterQuery = semesterQuery.eq("year_number", Number(year));
+          if (branch) {
+            semesterQuery = semesterQuery.eq("branch_id", branch);
+          }
 
-          const { data: sems, error: semesterError } = await semesterQuery;
+          if (year) {
+            semesterQuery = semesterQuery.eq(
+              "year_number",
+              Number(year)
+            );
+          }
+
+          const {
+            data: sems,
+            error: semesterError,
+          } = await semesterQuery;
+
           if (semesterError) throw semesterError;
 
           const semIds = (sems ?? []).map((r: Row) => r.id);
@@ -264,35 +372,42 @@ function Results() {
               .from("subjects")
               .select("id")
               .in("semester_id", semIds);
+
             if (subjectError) throw subjectError;
-            naturalSemesterSubjectIds = (data ?? []).map((r: Row) => r.id);
+
+            naturalSemesterSubjectIds = (data ?? []).map(
+              (r: Row) => r.id
+            );
           }
         }
 
         // ------------------------------------------------------------
         // Find subjects using each meaningful word.
-        // We use OR matching here so "engineering physics" can still
-        // find Physics even if the exact subject name differs slightly.
         // ------------------------------------------------------------
         let textSubjectIds: string[] = [];
 
         if (textTokens.length > 0) {
           const subjectParts: string[] = [];
+
           for (const token of textTokens.slice(0, 8)) {
             subjectParts.push("name.ilike.%" + token + "%");
-            subjectParts.push("subject_code.ilike.%" + token + "%");
+            subjectParts.push(
+              "subject_code.ilike.%" + token + "%"
+            );
           }
 
           const { data, error: subjectError } = await supabase
             .from("subjects")
             .select("id")
             .or(subjectParts.join(","));
+
           if (subjectError) throw subjectError;
+
           textSubjectIds = (data ?? []).map((r: Row) => r.id);
         }
 
-        // If the query contains both a subject and semester/year, intersect
-        // those sets. This is what makes "physics sem 1" precise.
+        // If the query contains both a subject and semester/year,
+        // intersect those sets.
         let resolvedSubjectIds: string[] | null = null;
 
         if (textTokens.length > 0) {
@@ -303,22 +418,23 @@ function Results() {
           resolvedSubjectIds =
             resolvedSubjectIds === null
               ? naturalSemesterSubjectIds
-              : resolvedSubjectIds.filter((id) => naturalSemesterSubjectIds!.includes(id));
+              : resolvedSubjectIds.filter((id) =>
+                  naturalSemesterSubjectIds!.includes(id)
+                );
         }
 
         if (navigationSubjectIds !== null) {
           resolvedSubjectIds =
             resolvedSubjectIds === null
               ? navigationSubjectIds
-              : resolvedSubjectIds.filter((id) => navigationSubjectIds!.includes(id));
+              : resolvedSubjectIds.filter((id) =>
+                  navigationSubjectIds!.includes(id)
+                );
         }
 
-        // A common first-year paper is intentionally not tied to the
-        // student's selected branch. The admin marks it once and students
-        // can access it from any B.Tech branch.
+        // A common first-year paper is intentionally not tied
+        // to the student's selected branch.
         if (commonFirstYear) {
-          // Common first-year material is independent of the selected branch.
-          // Do not let the normal branch/semester subject filter run below.
           resolvedSubjectIds = null;
         }
 
@@ -331,13 +447,23 @@ function Results() {
           .eq("is_published", true)
           .limit(100);
 
-        if (commonFirstYear) query = query.eq("is_common_first_year", true);
+        if (commonFirstYear) {
+          query = query.eq("is_common_first_year", true);
+        }
 
-        if (detectedType) query = query.eq("material_type", detectedType);
-        if (detectedExam) query = query.eq("exam_type", detectedExam);
+        if (detectedType) {
+          query = query.eq("material_type", detectedType);
+        }
+
+        if (detectedExam) {
+          query = query.eq("exam_type", detectedExam);
+        }
 
         if (detectedAcademicYear) {
-          query = query.ilike("academic_year", "%" + detectedAcademicYear + "%");
+          query = query.ilike(
+            "academic_year",
+            "%" + detectedAcademicYear + "%"
+          );
         }
 
         if (!commonFirstYear) {
@@ -347,40 +473,75 @@ function Results() {
                 setRows([]);
                 setLoading(false);
               }
+
               return;
             }
-            query = query.in("subject_id", resolvedSubjectIds);
+
+            query = query.in(
+              "subject_id",
+              resolvedSubjectIds
+            );
           } else if (navigationSubjectIds !== null) {
             if (navigationSubjectIds.length === 0) {
               if (!cancelled) {
                 setRows([]);
                 setLoading(false);
               }
+
               return;
             }
-            query = query.in("subject_id", navigationSubjectIds);
+
+            query = query.in(
+              "subject_id",
+              navigationSubjectIds
+            );
           }
         }
 
-        // If no subject was found, fall back to title searching. This lets
-        // searches such as a unique paper title still work.
-        if (textTokens.length > 0 && textSubjectIds.length === 0) {
+        // If no subject was found, fall back to title searching.
+        if (
+          textTokens.length > 0 &&
+          textSubjectIds.length === 0
+        ) {
           const titleParts = textTokens
             .slice(0, 8)
-            .map((token) => "title.ilike.%" + token + "%");
+            .map(
+              (token) => "title.ilike.%" + token + "%"
+            );
+
           query = query.or(titleParts.join(","));
         }
 
         if (sort === "newest") {
-          query = query.order("created_at", { ascending: false });
+          query = query.order("created_at", {
+            ascending: false,
+          });
         } else if (sort === "oldest") {
-          query = query.order("created_at", { ascending: true });
+          query = query.order("created_at", {
+            ascending: true,
+          });
         } else {
-          query = query.order("view_count", { ascending: false });
+          query = query.order("view_count", {
+            ascending: false,
+          });
         }
 
         const { data, error: err } = await query;
+
         if (err) throw err;
+
+        const resultCount = data?.length ?? 0;
+
+        // Record the search only when the student actually
+        // entered a search term.
+        if (raw.trim()) {
+          trackEvent({
+            event_type: "search",
+            search_query: raw.trim(),
+            result_count: resultCount,
+            page_path: "/search",
+          });
+        }
 
         if (!cancelled) {
           setRows(data ?? []);
@@ -388,7 +549,10 @@ function Results() {
         }
       } catch (err: any) {
         if (!cancelled) {
-          setError(err?.message ?? "Search failed. Please try again.");
+          setError(
+            err?.message ??
+              "Search failed. Please try again."
+          );
           setRows([]);
           setLoading(false);
         }
@@ -400,7 +564,19 @@ function Results() {
     return () => {
       cancelled = true;
     };
-  }, [q, type, exam, subject, semester, branch, college, university, year, commonFirstYear, sort]);
+  }, [
+    q,
+    type,
+    exam,
+    subject,
+    semester,
+    branch,
+    college,
+    university,
+    year,
+    commonFirstYear,
+    sort,
+  ]);
 
   const heading = q
     ? "Results for " + q
@@ -412,7 +588,13 @@ function Results() {
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    router.push(term.trim() ? "/search?q=" + encodeURIComponent(term.trim()) : "/search");
+
+    router.push(
+      term.trim()
+        ? "/search?q=" +
+            encodeURIComponent(term.trim())
+        : "/search"
+    );
   }
 
   return (
@@ -422,21 +604,34 @@ function Results() {
       <main className="flex-1 bg-slate-50">
         <div className="border-b border-slate-200 bg-white">
           <div className="mx-auto max-w-5xl px-5 py-10">
-            <h1 className="text-3xl font-semibold tracking-tight">{heading}</h1>
+            <h1 className="text-3xl font-semibold tracking-tight">
+              {heading}
+            </h1>
+
             <p className="mt-2 text-sm text-slate-500">
               {loading
                 ? "Searching..."
-                : rows.length + " material" + (rows.length === 1 ? "" : "s") + " found"}
+                : rows.length +
+                  " material" +
+                  (rows.length === 1 ? "" : "s") +
+                  " found"}
             </p>
 
-            <form onSubmit={submit} className="mt-6 flex max-w-xl gap-2">
+            <form
+              onSubmit={submit}
+              className="mt-6 flex max-w-xl gap-2"
+            >
               <input
                 value={term}
                 onChange={(e) => setTerm(e.target.value)}
                 placeholder="Search paper code or subject"
                 className="field"
               />
-              <button type="submit" className="btn-primary whitespace-nowrap">
+
+              <button
+                type="submit"
+                className="btn-primary whitespace-nowrap"
+              >
                 Search
               </button>
             </form>
@@ -457,6 +652,7 @@ function Results() {
               >
                 All
               </Link>
+
               {MATERIAL_TYPES.map((m) => (
                 <Link
                   key={m.value}
@@ -501,18 +697,27 @@ function Results() {
             </div>
           )}
 
-          {!loading && rows.length === 0 && !error && (
-            <div className="mt-8 rounded-3xl border border-slate-200 bg-white px-6 py-16 text-center">
-              <p className="text-base font-semibold">Nothing here yet</p>
-              <p className="mx-auto mt-2 max-w-sm text-sm text-slate-500">
-                Try a subject name or paper code, or browse step by step from
-                the homepage.
-              </p>
-              <Link href="/" className="btn-primary mt-7 inline-block">
-                Back to home
-              </Link>
-            </div>
-          )}
+          {!loading &&
+            rows.length === 0 &&
+            !error && (
+              <div className="mt-8 rounded-3xl border border-slate-200 bg-white px-6 py-16 text-center">
+                <p className="text-base font-semibold">
+                  Nothing here yet
+                </p>
+
+                <p className="mx-auto mt-2 max-w-sm text-sm text-slate-500">
+                  Try a subject name or paper code, or
+                  browse step by step from the homepage.
+                </p>
+
+                <Link
+                  href="/"
+                  className="btn-primary mt-7 inline-block"
+                >
+                  Back to home
+                </Link>
+              </div>
+            )}
 
           {!loading && rows.length > 0 && (
             <ul className="mt-8 space-y-3">
@@ -524,21 +729,34 @@ function Results() {
                   >
                     <div className="flex flex-wrap items-start justify-between gap-4">
                       <div className="min-w-0">
-                        <p className="text-[15px] font-semibold">{m.title}</p>
+                        <p className="text-[15px] font-semibold">
+                          {m.title}
+                        </p>
+
                         <p className="mt-1 text-xs text-slate-500">
                           {m.subjects?.name}
                           {m.subjects?.subject_code
-                            ? " - " + m.subjects.subject_code
+                            ? " - " +
+                              m.subjects.subject_code
                             : ""}
                         </p>
                       </div>
+
                       <div className="flex flex-wrap gap-2">
                         <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700">
-                          {labelOf(MATERIAL_TYPES, m.material_type)}
+                          {labelOf(
+                            MATERIAL_TYPES,
+                            m.material_type
+                          )}
                         </span>
+
                         <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] text-slate-600">
-                          {labelOf(EXAM_TYPES, m.exam_type)}
+                          {labelOf(
+                            EXAM_TYPES,
+                            m.exam_type
+                          )}
                         </span>
+
                         {m.academic_year && (
                           <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] text-slate-600">
                             {m.academic_year}
