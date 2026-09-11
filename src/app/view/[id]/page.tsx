@@ -196,7 +196,7 @@ export default function ViewMaterialPage() {
                 </p>
               </div>
 
-              {material.allow_download && (
+              {material?.allow_download && (
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
                   <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">
                     Download available
