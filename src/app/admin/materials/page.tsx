@@ -43,8 +43,8 @@ export default function MaterialsPage() {
     const { data, error } = await supabase
       .from("materials")
       .select(
-        "id, title, material_type, exam_type, academic_year, is_published, file_path, view_count, created_at"
-      )
+  "id, title, material_type, exam_type, academic_year, is_published, allow_download, file_path, view_count, created_at"
+)
       .eq("subject_id", id)
       .order("created_at", { ascending: false });
     if (error) setMsg(error.message);
@@ -192,14 +192,37 @@ export default function MaterialsPage() {
     loadMaterials();
   }
 
-  async function togglePublish(r: Row) {
-    const { error } = await supabase
-      .from("materials")
-      .update({ is_published: !r.is_published })
-      .eq("id", r.id);
-    if (error) return setMsg(error.message);
-    loadMaterials();
+async function togglePublish(r: Row) {
+  const { error } = await supabase
+    .from("materials")
+    .update({ is_published: !r.is_published })
+    .eq("id", r.id);
+
+  if (error) return setMsg(error.message);
+
+  setMsg(r.is_published ? "Unpublished." : "Published.");
+  loadMaterials();
+}
+
+async function toggleDownload(r: Row) {
+  const { error } = await supabase
+    .from("materials")
+    .update({ allow_download: !r.allow_download })
+    .eq("id", r.id);
+
+  if (error) {
+    setMsg(error.message);
+    return;
   }
+
+  setMsg(
+    r.allow_download
+      ? "Download disabled."
+      : "Download enabled."
+  );
+
+  loadMaterials();
+}
 
   async function saveEdit() {
     if (!eTitle.trim()) return setMsg("Title cannot be empty.");
@@ -518,6 +541,12 @@ export default function MaterialsPage() {
                             className="text-xs font-medium text-slate-600 hover:underline"
                           >
                             {r.is_published ? "Unpublish" : "Publish"}
+                          </button>
+                          <button
+                          onClick={() => toggleDownload(r)}
+                          className="text-xs font-medium hover:underline"
+                          >
+                          {r.allow_download ? "Disable download" : "Enable download"}
                           </button>
                           <button
                             onClick={() => remove(r)}
