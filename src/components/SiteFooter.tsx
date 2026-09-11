@@ -11,7 +11,7 @@ export default function SiteFooter() {
                 CP
               </span>
               <span className="text-[15px] font-semibold text-white">
-                CAE Papers
+                Our Papers
               </span>
             </div>
             <p className="mt-4 max-w-sm text-sm leading-relaxed text-slate-400">

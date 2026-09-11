@@ -25,7 +25,7 @@ export default function SiteHeader({ dark = false }: { dark?: boolean }) {
             CP
           </span>
           <span className="text-[15px] font-semibold tracking-tight">
-            CAE Papers
+            Our Papers
           </span>
         </Link>
 
