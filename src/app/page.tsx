@@ -56,7 +56,11 @@ export default function HomePage() {
   const [uniId, setUniId] = useState("");
   const [collegeId, setCollegeId] = useState("");
   const [branchId, setBranchId] = useState("");
+  const [isBtech, setIsBtech] = useState(false);
+  const [years, setYears] = useState<number[]>([]);
+  const [yearNumber, setYearNumber] = useState("");
   const [semesterId, setSemesterId] = useState("");
+  const [commonFirstYear, setCommonFirstYear] = useState(false);
   const [subjectId, setSubjectId] = useState("");
   const [examType, setExamType] = useState("");
 
@@ -111,7 +115,7 @@ export default function HomePage() {
     if (!collegeId) return setBranches([]);
     supabase
       .from("branches")
-      .select("id, name")
+      .select("id, name, course_id")
       .eq("college_id", collegeId)
       .eq("is_active", true)
       .order("name")
@@ -120,29 +124,78 @@ export default function HomePage() {
 
   useEffect(() => {
     setSemesterId("");
+    setYearNumber("");
     setSubjectId("");
     setSubjects([]);
-    if (!branchId) return setSemesters([]);
+    setYears([]);
+    setCommonFirstYear(false);
+
+    if (!branchId) {
+      setSemesters([]);
+      setIsBtech(false);
+      return;
+    }
+
+    const selectedBranch = branches.find((b) => b.id === branchId);
+    const btech =
+      selectedBranch?.course_id ===
+      "06b26861-845e-4c61-9a50-815947500594";
+    setIsBtech(Boolean(btech));
+
     supabase
       .from("semesters")
-      .select("id, name, semester_number")
+      .select("id, name, semester_number, year_number")
       .eq("branch_id", branchId)
       .eq("is_active", true)
       .order("semester_number")
-      .then(({ data }) => setSemesters(data ?? []));
-  }, [branchId]);
+      .then(({ data }) => {
+        const next = data ?? [];
+        setSemesters(next);
+
+        if (btech) {
+          const yearValues: number[] = next
+            .map((r: Row) => Number(r.year_number))
+            .filter((n: number) => n >= 1 && n <= 4);
+          const uniqueYears: number[] = Array.from(new Set<number>(yearValues)).sort(
+            (a, b) => a - b
+          );
+          setYears(uniqueYears);
+        }
+      });
+  }, [branchId, branches]);
 
   useEffect(() => {
     setSubjectId("");
-    if (!semesterId) return setSubjects([]);
+    if (!isBtech) {
+      if (!semesterId) return setSubjects([]);
+      supabase
+        .from("subjects")
+        .select("id, name, subject_code")
+        .eq("semester_id", semesterId)
+        .eq("is_active", true)
+        .order("name")
+        .then(({ data }) => setSubjects(data ?? []));
+      return;
+    }
+
+    if (!yearNumber || !branchId) return setSubjects([]);
+
+    const year = Number(yearNumber);
+    const yearSemesters = semesters.filter(
+      (r: Row) => Number(r.year_number) === year
+    );
+    const semIds = yearSemesters.map((r: Row) => r.id);
+
+    if (semIds.length === 0) return setSubjects([]);
+
     supabase
       .from("subjects")
       .select("id, name, subject_code")
-      .eq("semester_id", semesterId)
+      .in("semester_id", semIds)
       .eq("is_active", true)
       .order("name")
       .then(({ data }) => setSubjects(data ?? []));
-  }, [semesterId]);
+  }, [isBtech, yearNumber, semesterId, branchId, semesters]);
 
   function runSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -152,11 +205,29 @@ export default function HomePage() {
 
   function runFilters() {
     const params = new URLSearchParams();
-    if (subjectId) params.set("subject", subjectId);
-    else if (semesterId) params.set("semester", semesterId);
-    else if (branchId) params.set("branch", branchId);
-    else if (collegeId) params.set("college", collegeId);
-    else if (uniId) params.set("university", uniId);
+
+    if (isBtech) {
+      if (yearNumber) params.set("year", yearNumber);
+
+      if (commonFirstYear && yearNumber === "1") {
+        params.set("common_first_year", "1");
+      } else if (subjectId) {
+        params.set("subject", subjectId);
+      } else if (branchId) {
+        params.set("branch", branchId);
+      } else if (collegeId) {
+        params.set("college", collegeId);
+      } else if (uniId) {
+        params.set("university", uniId);
+      }
+    } else {
+      if (subjectId) params.set("subject", subjectId);
+      else if (semesterId) params.set("semester", semesterId);
+      else if (branchId) params.set("branch", branchId);
+      else if (collegeId) params.set("college", collegeId);
+      else if (uniId) params.set("university", uniId);
+    }
+
     if (examType) params.set("exam", examType);
     router.push("/search?" + params.toString());
   }
@@ -189,25 +260,55 @@ export default function HomePage() {
       disabled: !collegeId,
       render: (r: Row) => r.name,
     },
-    {
-      n: 4,
-      label: "Semester",
-      value: semesterId,
-      set: setSemesterId,
-      rows: semesters,
-      disabled: !branchId,
-      render: (r: Row) => r.name,
-    },
-    {
-      n: 5,
-      label: "Subject",
-      value: subjectId,
-      set: setSubjectId,
-      rows: subjects,
-      disabled: !semesterId,
-      render: (r: Row) =>
-        r.name + (r.subject_code ? " - " + r.subject_code : ""),
-    },
+    ...(isBtech
+      ? [
+          {
+            n: 4,
+            label: "Year",
+            value: yearNumber,
+            set: (value: string) => {
+              setYearNumber(value);
+              setCommonFirstYear(false);
+            },
+            rows: years.map((year) => ({
+              id: String(year),
+              name: `${year === 1 ? "1st" : year === 2 ? "2nd" : year === 3 ? "3rd" : "4th"} Year`,
+            })),
+            disabled: !branchId,
+            render: (r: Row) => r.name,
+          },
+          {
+            n: 5,
+            label: "Subject",
+            value: subjectId,
+            set: setSubjectId,
+            rows: subjects,
+            disabled: !yearNumber || commonFirstYear,
+            render: (r: Row) =>
+              r.name + (r.subject_code ? " - " + r.subject_code : ""),
+          },
+        ]
+      : [
+          {
+            n: 4,
+            label: "Semester",
+            value: semesterId,
+            set: setSemesterId,
+            rows: semesters,
+            disabled: !branchId,
+            render: (r: Row) => r.name,
+          },
+          {
+            n: 5,
+            label: "Subject",
+            value: subjectId,
+            set: setSubjectId,
+            rows: subjects,
+            disabled: !semesterId,
+            render: (r: Row) =>
+              r.name + (r.subject_code ? " - " + r.subject_code : ""),
+          },
+        ]),
   ];
 
   return (
@@ -255,8 +356,8 @@ export default function HomePage() {
             </h1>
 
             <p className="rise rise-3 mt-6 max-w-xl text-[15px] leading-relaxed text-slate-400">
-              Search by paper code or subject name, or walk down from your
-              university to your exact semester. No dead ends, no clutter.
+              Search naturally by paper code or subject, or browse from your
+              university to the exact course, year and branch. No dead ends, no clutter.
             </p>
 
             <form
@@ -351,6 +452,28 @@ export default function HomePage() {
                 </label>
               ))}
 
+              {isBtech && yearNumber === "1" && (
+                <label className="flex items-center gap-3 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4 sm:col-span-2 lg:col-span-3">
+                  <input
+                    type="checkbox"
+                    checked={commonFirstYear}
+                    onChange={(e) => {
+                      setCommonFirstYear(e.target.checked);
+                      if (e.target.checked) setSubjectId("");
+                    }}
+                    className="h-4 w-4"
+                  />
+                  <span>
+                    <span className="block text-sm font-semibold text-slate-800">
+                      Common to all B.Tech branches
+                    </span>
+                    <span className="mt-0.5 block text-xs text-slate-500">
+                      Show approved first-year papers marked as common.
+                    </span>
+                  </span>
+                </label>
+              )}
+
               <label className="block">
                 <span className="mb-1.5 flex items-center gap-2 text-xs font-medium text-slate-500">
                   <span
@@ -379,7 +502,7 @@ export default function HomePage() {
             <div className="mt-7 flex flex-wrap items-center gap-4">
               <button
                 onClick={runFilters}
-                disabled={!uniId}
+                disabled={!uniId || (isBtech && (!branchId || !yearNumber))}
                 className="btn-primary"
               >
                 Show materials

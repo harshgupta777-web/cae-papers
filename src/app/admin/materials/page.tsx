@@ -22,12 +22,15 @@ export default function MaterialsPage() {
   const [branchId, setBranchId] = useState("");
   const [semesterId, setSemesterId] = useState("");
   const [subjectId, setSubjectId] = useState("");
+  const [isBtech, setIsBtech] = useState(false);
+  const [isBtechYear1, setIsBtechYear1] = useState(false);
 
   const [title, setTitle] = useState("");
   const [materialType, setMaterialType] = useState("paper");
   const [examType, setExamType] = useState("cae1");
   const [year, setYear] = useState("");
   const [publish, setPublish] = useState(true);
+  const [isCommonFirstYear, setIsCommonFirstYear] = useState(false);
   const [file, setFile] = useState<File | null>(null);
 
   const [rows, setRows] = useState<Row[]>([]);
@@ -43,7 +46,7 @@ export default function MaterialsPage() {
     const { data, error } = await supabase
       .from("materials")
       .select(
-  "id, title, material_type, exam_type, academic_year, is_published, allow_download, file_path, view_count, created_at"
+  "id, title, material_type, exam_type, academic_year, is_published, allow_download, is_common_first_year, file_path, view_count, created_at"
 )
       .eq("subject_id", id)
       .order("created_at", { ascending: false });
@@ -105,7 +108,7 @@ export default function MaterialsPage() {
     if (!collegeId) return setBranches([]);
     supabase
       .from("branches")
-      .select("id, name")
+      .select("id, name, course_id")
       .eq("college_id", collegeId)
       .order("name")
       .then(({ data }) => setBranches(data ?? []));
@@ -119,11 +122,64 @@ export default function MaterialsPage() {
     if (!branchId) return setSemesters([]);
     supabase
       .from("semesters")
-      .select("id, name, semester_number")
+      .select("id, name, semester_number, year_number")
       .eq("branch_id", branchId)
       .order("semester_number")
       .then(({ data }) => setSemesters(data ?? []));
   }, [branchId]);
+    useEffect(() => {
+    setSemesterId("");
+    setSubjectId("");
+    setSubjects([]);
+    setRows([]);
+    if (!branchId) return setSemesters([]);
+    supabase
+      .from("semesters")
+      .select("id, name, semester_number, year_number")
+      .eq("branch_id", branchId)
+      .order("semester_number")
+      .then(({ data }) => setSemesters(data ?? []));
+  }, [branchId]);
+
+
+  // ADD THIS HERE
+  useEffect(() => {
+    const selectedBranch = branches.find((b) => b.id === branchId);
+    const selectedSemester = semesters.find((s) => s.id === semesterId);
+
+    if (!selectedBranch || !selectedSemester) {
+      setIsBtech(false);
+      setIsBtechYear1(false);
+      setIsCommonFirstYear(false);
+      return;
+    }
+
+    const btech =
+      selectedBranch.course_id ===
+      "06b26861-845e-4c61-9a50-815947500594";
+
+    const year1 = btech && selectedSemester.year_number === 1;
+
+    setIsBtech(btech);
+    setIsBtechYear1(year1);
+
+    if (!year1) {
+      setIsCommonFirstYear(false);
+    }
+  }, [branches, semesters, branchId, semesterId]);
+
+
+  useEffect(() => {
+    setSubjectId("");
+    setRows([]);
+    if (!semesterId) return setSubjects([]);
+    supabase
+      .from("subjects")
+      .select("id, name, subject_code")
+      .eq("semester_id", semesterId)
+      .order("name")
+      .then(({ data }) => setSubjects(data ?? []));
+  }, [semesterId]);
 
   useEffect(() => {
     setSubjectId("");
@@ -147,6 +203,10 @@ export default function MaterialsPage() {
 
     if (!subjectId) return setMsg("Pick a subject first.");
     if (!title.trim()) return setMsg("Enter a title.");
+    if (isCommonFirstYear && !isBtechYear1){
+       setIsCommonFirstYear(false);
+       return setMsg("Common first year is only available for B.Tech Year 1.");
+      }
     if (!file) return setMsg("Choose a PDF file.");
     if (file.type !== "application/pdf") return setMsg("Only PDF files.");
 
@@ -174,6 +234,7 @@ export default function MaterialsPage() {
       file_name: file.name,
       file_size: file.size,
       is_published: publish,
+      is_common_first_year: isCommonFirstYear,
     });
 
     if (insErr) {
@@ -184,6 +245,7 @@ export default function MaterialsPage() {
 
     setTitle("");
     setYear("");
+    setIsCommonFirstYear(false);
     setFile(null);
     (document.getElementById("pdfInput") as HTMLInputElement | null)?.value &&
       ((document.getElementById("pdfInput") as HTMLInputElement).value = "");
@@ -417,13 +479,24 @@ async function toggleDownload(r: Row) {
             />
 
             <label className="mt-4 flex items-center gap-2 text-xs text-slate-700">
-              <input
-                type="checkbox"
-                checked={publish}
-                onChange={(e) => setPublish(e.target.checked)}
-              />
-              Publish immediately
-            </label>
+            <input
+            type="checkbox"
+            checked={publish}
+            onChange={(e) => setPublish(e.target.checked)}
+            />
+           Publish immediately
+          </label>
+
+          {isBtechYear1 && (
+           <label className="mt-3 flex items-center gap-2 text-xs text-slate-700">
+           <input
+           type="checkbox"
+           checked={isCommonFirstYear}
+           onChange={(e) => setIsCommonFirstYear(e.target.checked)}
+          />
+          Common to all B.Tech branches — 1st Year
+          </label>
+           )}
 
             <button type="submit" disabled={busy} className="btn-primary mt-5">
               {busy ? "Uploading..." : "Upload material"}

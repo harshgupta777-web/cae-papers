@@ -10,7 +10,7 @@ import SiteFooter from "@/components/SiteFooter";
 type Row = Record<string, any>;
 
 const SELECT =
-  "id, title, material_type, exam_type, academic_year, view_count, created_at, subject_id, subjects!materials_subject_id_fkey(id, name, subject_code)";
+  "id, title, material_type, exam_type, academic_year, view_count, created_at, subject_id, is_common_first_year, subjects!materials_subject_id_fkey(id, name, subject_code)";
 
 function Results() {
   const params = useSearchParams();
@@ -24,6 +24,8 @@ function Results() {
   const branch = params.get("branch") ?? "";
   const college = params.get("college") ?? "";
   const university = params.get("university") ?? "";
+  const year = params.get("year") ?? "";
+  const commonFirstYear = params.get("common_first_year") === "1";
 
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
@@ -160,10 +162,14 @@ function Results() {
           if (subjectError) throw subjectError;
           navigationSubjectIds = (data ?? []).map((r: Row) => r.id);
         } else if (branch) {
-          const { data: sems, error: semError } = await supabase
+          let semQuery = supabase
             .from("semesters")
             .select("id")
             .eq("branch_id", branch);
+
+          if (year) semQuery = semQuery.eq("year_number", Number(year));
+
+          const { data: sems, error: semError } = await semQuery;
           if (semError) throw semError;
           const semIds = (sems ?? []).map((r: Row) => r.id);
 
@@ -208,10 +214,14 @@ function Results() {
           if (branchIds.length === 0) {
             navigationSubjectIds = [];
           } else {
-            const { data: sems, error: semError } = await supabase
+            let semQuery = supabase
               .from("semesters")
               .select("id")
               .in("branch_id", branchIds);
+
+            if (year) semQuery = semQuery.eq("year_number", Number(year));
+
+            const { data: sems, error: semError } = await semQuery;
             if (semError) throw semError;
             const semIds = (sems ?? []).map((r: Row) => r.id);
 
@@ -240,6 +250,7 @@ function Results() {
             .in("semester_number", Array.from(semesterNumbers));
 
           if (branch) semesterQuery = semesterQuery.eq("branch_id", branch);
+          if (year) semesterQuery = semesterQuery.eq("year_number", Number(year));
 
           const { data: sems, error: semesterError } = await semesterQuery;
           if (semesterError) throw semesterError;
@@ -302,6 +313,15 @@ function Results() {
               : resolvedSubjectIds.filter((id) => navigationSubjectIds!.includes(id));
         }
 
+        // A common first-year paper is intentionally not tied to the
+        // student's selected branch. The admin marks it once and students
+        // can access it from any B.Tech branch.
+        if (commonFirstYear) {
+          // Common first-year material is independent of the selected branch.
+          // Do not let the normal branch/semester subject filter run below.
+          resolvedSubjectIds = null;
+        }
+
         // ------------------------------------------------------------
         // Build the material query.
         // ------------------------------------------------------------
@@ -311,6 +331,8 @@ function Results() {
           .eq("is_published", true)
           .limit(100);
 
+        if (commonFirstYear) query = query.eq("is_common_first_year", true);
+
         if (detectedType) query = query.eq("material_type", detectedType);
         if (detectedExam) query = query.eq("exam_type", detectedExam);
 
@@ -318,24 +340,26 @@ function Results() {
           query = query.ilike("academic_year", "%" + detectedAcademicYear + "%");
         }
 
-        if (resolvedSubjectIds !== null) {
-          if (resolvedSubjectIds.length === 0) {
-            if (!cancelled) {
-              setRows([]);
-              setLoading(false);
+        if (!commonFirstYear) {
+          if (resolvedSubjectIds !== null) {
+            if (resolvedSubjectIds.length === 0) {
+              if (!cancelled) {
+                setRows([]);
+                setLoading(false);
+              }
+              return;
             }
-            return;
-          }
-          query = query.in("subject_id", resolvedSubjectIds);
-        } else if (navigationSubjectIds !== null) {
-          if (navigationSubjectIds.length === 0) {
-            if (!cancelled) {
-              setRows([]);
-              setLoading(false);
+            query = query.in("subject_id", resolvedSubjectIds);
+          } else if (navigationSubjectIds !== null) {
+            if (navigationSubjectIds.length === 0) {
+              if (!cancelled) {
+                setRows([]);
+                setLoading(false);
+              }
+              return;
             }
-            return;
+            query = query.in("subject_id", navigationSubjectIds);
           }
-          query = query.in("subject_id", navigationSubjectIds);
         }
 
         // If no subject was found, fall back to title searching. This lets
@@ -376,7 +400,7 @@ function Results() {
     return () => {
       cancelled = true;
     };
-  }, [q, type, exam, subject, semester, branch, college, university, sort]);
+  }, [q, type, exam, subject, semester, branch, college, university, year, commonFirstYear, sort]);
 
   const heading = q
     ? "Results for " + q
