@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import AnalyticsTracker from "@/components/AnalyticsTracker";
+import { Analytics } from "@vercel/analytics/next";
 
 export const metadata: Metadata = {
   title: "Our Prep | College Papers, Answers & Important Questions",
@@ -18,6 +19,7 @@ export default function RootLayout({
       <body suppressHydrationWarning>
         <AnalyticsTracker />
         {children}
+        <Analytics />
       </body>
     </html>
   );
