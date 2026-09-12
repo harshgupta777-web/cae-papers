@@ -22,10 +22,11 @@ export default function SiteHeader({ dark = false }: { dark?: boolean }) {
       <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3.5">
         <Link href="/" className="flex items-center gap-2.5">
           <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-[13px] font-bold text-white shadow-lg shadow-indigo-500/25">
-            CP
+            OP
           </span>
+
           <span className="text-[15px] font-semibold tracking-tight">
-            Our Papers
+            Our Prep
           </span>
         </Link>
 
@@ -33,15 +34,19 @@ export default function SiteHeader({ dark = false }: { dark?: boolean }) {
           <Link href="/search?type=paper" className={link}>
             Papers
           </Link>
+
           <Link href="/search?type=answer_pdf" className={link}>
             Answers
           </Link>
+
           <Link href="/search?type=important_questions" className={link}>
             Important questions
           </Link>
+
           <Link href="/search" className={link}>
             Browse all
           </Link>
+
           <Link
             href="/admin"
             className={
@@ -74,15 +79,19 @@ export default function SiteHeader({ dark = false }: { dark?: boolean }) {
             <Link href="/search?type=paper" className={link}>
               Papers
             </Link>
+
             <Link href="/search?type=answer_pdf" className={link}>
               Answers
             </Link>
+
             <Link href="/search?type=important_questions" className={link}>
               Important questions
             </Link>
+
             <Link href="/search" className={link}>
               Browse all
             </Link>
+
             <Link href="/admin" className={link}>
               Owner login
             </Link>

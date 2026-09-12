@@ -3,9 +3,9 @@ import "./globals.css";
 import AnalyticsTracker from "@/components/AnalyticsTracker";
 
 export const metadata: Metadata = {
-  title: "Our Papers | Papers, answers and important questions",
+  title: "Our Prep | College Papers, Answers & Important Questions",
   description:
-    "Previous year Our Papers, answer PDFs and important questions organised by university, college, branch, semester and subject.",
+    "Our Prep helps college students find previous papers, answer PDFs and important questions organised by university, college, branch, semester and subject.",
 };
 
 export default function RootLayout({

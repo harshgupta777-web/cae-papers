@@ -23,7 +23,7 @@ const CARDS = [
   {
     type: "important_questions",
     title: "Important questions",
-    desc: "The repeated and most expected questions, view only.",
+    desc: "The repeated and most expected questions for focused exam preparation.",
   },
   {
     type: "notes",
@@ -605,19 +605,19 @@ export default function HomePage() {
             />
             <div className="relative max-w-2xl">
               <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-                Online viewing, by design
+                Online viewing & offline downloading
               </h2>
               <p className="mt-4 text-sm leading-relaxed text-slate-400">
-                Every PDF sits in private storage. When you open one, the site
-                creates a temporary link that expires on its own, so material
-                stays here instead of spreading around as forwarded files.
+                Every PDF is securely stored. Open papers online for quick
+                revision, or download available PDFs for offline preparation.
+                Your study material stays organised and accessible whenever you need it.
               </p>
               <div className="mt-8 grid gap-4 sm:grid-cols-3">
                 {[
-                  ["Private storage", "No permanent file links"],
-                  ["Expiring links", "Generated only when you open a paper"],
-                  ["Curated content", "Nothing appears until it is approved"],
-                ].map(([t, d]) => (
+                 ["Secure storage", "Your study material stays protected"],
+                 ["Online viewing", "Read papers instantly in your browser"],
+                 ["Offline downloads", "Download enabled PDFs and study anywhere"],
+                 ].map(([t, d]) => (
                   <div
                     key={t}
                     className="rounded-2xl border border-white/10 bg-white/5 p-5"
@@ -632,9 +632,18 @@ export default function HomePage() {
             </div>
           </div>
         </section>
-      </main>
+            </main>
 
-      <SiteFooter />
-    </div>
+         <div className="border-t border-slate-200 bg-white px-5 py-8 text-center">
+         <p className="text-sm font-medium text-slate-700">
+          Made with ❤️ by Harsh, Bhavishya and Chandra Prakash
+         </p>
+         <p className="mt-1 text-xs text-slate-400">
+          Built for students, by students.
+         </p>
+        </div>
+
+        <SiteFooter />
+        </div>
   );
 }
