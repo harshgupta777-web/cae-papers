@@ -9,6 +9,7 @@ export default function SiteHeader({ dark = false }: { dark?: boolean }) {
   const wrap = dark
     ? "border-white/10 bg-[#0b1020]/80 text-white"
     : "border-slate-200 bg-white/80 text-slate-900";
+
   const link = dark
     ? "text-slate-300 hover:text-white"
     : "text-slate-600 hover:text-slate-900";
@@ -16,20 +17,22 @@ export default function SiteHeader({ dark = false }: { dark?: boolean }) {
   return (
     <header
       className={
-        "sticky top-0 z-50 border-b backdrop-blur-xl transition-colors " + wrap
+        "sticky top-0 z-50 border-b backdrop-blur-xl transition-colors " +
+        wrap
       }
     >
       <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3.5">
+        
+        {/* Logo + OurPrep */}
         <Link href="/" className="flex items-center gap-2.5">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-[13px] font-bold text-white shadow-lg shadow-indigo-500/25">
-            OP
-          </span>
-
-          <span className="text-[15px] font-semibold tracking-tight">
-            Our Prep
-          </span>
+          <img
+            src="/our-prep.png"
+            alt="OurPrep"
+            className="h-12 w-auto object-contain"
+          />
         </Link>
 
+        {/* Desktop navigation */}
         <nav className="hidden items-center gap-7 text-sm sm:flex">
           <Link href="/search?type=paper" className={link}>
             Papers
@@ -47,6 +50,19 @@ export default function SiteHeader({ dark = false }: { dark?: boolean }) {
             Browse all
           </Link>
 
+          {/* Contact Us */}
+          <Link
+            href="/contact"
+            className={
+              dark
+                ? "text-slate-300 hover:text-white"
+                : "text-slate-600 hover:text-slate-900"
+            }
+          >
+            Contact Us
+          </Link>
+
+          {/* Owner */}
           <Link
             href="/admin"
             className={
@@ -59,15 +75,18 @@ export default function SiteHeader({ dark = false }: { dark?: boolean }) {
           </Link>
         </nav>
 
+        {/* Mobile menu button */}
         <button
           onClick={() => setOpen(!open)}
           className="text-sm font-medium sm:hidden"
           aria-label="Menu"
+          aria-expanded={open}
         >
           {open ? "Close" : "Menu"}
         </button>
       </div>
 
+      {/* Mobile navigation */}
       {open && (
         <div
           className={
@@ -76,23 +95,51 @@ export default function SiteHeader({ dark = false }: { dark?: boolean }) {
           }
         >
           <div className="flex flex-col gap-3">
-            <Link href="/search?type=paper" className={link}>
+            <Link
+              href="/search?type=paper"
+              className={link}
+              onClick={() => setOpen(false)}
+            >
               Papers
             </Link>
 
-            <Link href="/search?type=answer_pdf" className={link}>
+            <Link
+              href="/search?type=answer_pdf"
+              className={link}
+              onClick={() => setOpen(false)}
+            >
               Answers
             </Link>
 
-            <Link href="/search?type=important_questions" className={link}>
+            <Link
+              href="/search?type=important_questions"
+              className={link}
+              onClick={() => setOpen(false)}
+            >
               Important questions
             </Link>
 
-            <Link href="/search" className={link}>
+            <Link
+              href="/search"
+              className={link}
+              onClick={() => setOpen(false)}
+            >
               Browse all
             </Link>
 
-            <Link href="/admin" className={link}>
+            <Link
+              href="/contact"
+              className={link}
+              onClick={() => setOpen(false)}
+            >
+              Contact Us
+            </Link>
+
+            <Link
+              href="/admin"
+              className={link}
+              onClick={() => setOpen(false)}
+            >
               Owner login
             </Link>
           </div>

@@ -635,9 +635,7 @@ export default function HomePage() {
             </main>
 
          <div className="border-t border-slate-200 bg-white px-5 py-8 text-center">
-         <p className="text-sm font-medium text-slate-700">
-          Made with ❤️ by Harsh, Bhavishya and Chandra Prakash
-         </p>
+         
          <p className="mt-1 text-xs text-slate-400">
           Built for students, by students.
          </p>
