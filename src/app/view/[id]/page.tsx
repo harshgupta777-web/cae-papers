@@ -87,11 +87,13 @@ export default function ViewMaterialPage() {
       supabase.rpc("increment_material_view", {
         material_id: id,
       });
+
       trackEvent({
-      event_type: "pdf_view",
-       material_id: id,
-       page_path: "/view/" + id,
+        event_type: "pdf_view",
+        material_id: id,
+        page_path: "/view/" + id,
       });
+
       setLoading(false);
     }
 
@@ -176,15 +178,37 @@ export default function ViewMaterialPage() {
           <div className="mt-6 grid gap-5 lg:grid-cols-[1fr_260px]">
             <div
               className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
-              onContextMenu={(e) =>
-                e.preventDefault()
-              }
+              onContextMenu={(e) => e.preventDefault()}
             >
+              {/* Desktop PDF viewer */}
               <iframe
                 src={url}
                 title={material?.title ?? "Material"}
-                className="h-[82vh] w-full"
+                className="hidden h-[82vh] w-full md:block"
               />
+
+              {/* Mobile PDF viewer */}
+              <div className="flex min-h-[70vh] flex-col items-center justify-center px-6 text-center md:hidden">
+                <div className="text-5xl">📄</div>
+
+                <h2 className="mt-5 text-lg font-semibold text-slate-800">
+                  PDF ready to view
+                </h2>
+
+                <p className="mt-2 max-w-sm text-sm leading-relaxed text-slate-500">
+                  Your phone&apos;s browser cannot display this PDF
+                  inside the page. Open it directly to view it.
+                </p>
+
+                <a
+                  href={url.split("#")[0]}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-6 inline-flex items-center justify-center rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                >
+                  📖 Open PDF
+                </a>
+              </div>
             </div>
 
             <aside className="space-y-4">
@@ -208,17 +232,17 @@ export default function ViewMaterialPage() {
                   </p>
 
                   <a
-                     href={url.split("#")[0]}
-                     download
-                     target="_blank"
-                     rel="noopener noreferrer"
-                     onClick={() => {
-                     trackEvent({
-                     event_type: "pdf_download",
-                     material_id: material.id,
-                     page_path: "/view/" + material.id,
-                     });
-                      }}
+                    href={url.split("#")[0]}
+                    download
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => {
+                      trackEvent({
+                        event_type: "pdf_download",
+                        material_id: material.id,
+                        page_path: "/view/" + material.id,
+                      });
+                    }}
                     className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
                   >
                     📥 Download PDF
