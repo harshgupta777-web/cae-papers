@@ -202,8 +202,6 @@ export default function ViewMaterialPage() {
 
                 <a
                   href={url.split("#")[0]}
-                  target="_blank"
-                  rel="noopener noreferrer"
                   className="mt-6 inline-flex items-center justify-center rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
                 >
                   📖 Open PDF
