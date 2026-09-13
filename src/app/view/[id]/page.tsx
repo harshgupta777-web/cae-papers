@@ -23,6 +23,16 @@ export default function ViewMaterialPage() {
   const [related, setRelated] = useState<Row[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [isMobile, setIsMobile] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const mobile =
+      /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|Mobile/i.test(
+        navigator.userAgent
+      );
+
+    setIsMobile(mobile);
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -97,7 +107,9 @@ export default function ViewMaterialPage() {
       setLoading(false);
     }
 
-    if (id) load();
+    if (id) {
+      load();
+    }
   }, [id]);
 
   return (
@@ -174,39 +186,41 @@ export default function ViewMaterialPage() {
           </div>
         )}
 
-        {url && !error && (
+        {url && !error && isMobile !== null && (
           <div className="mt-6 grid gap-5 lg:grid-cols-[1fr_260px]">
             <div
               className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
               onContextMenu={(e) => e.preventDefault()}
             >
-              {/* Desktop PDF viewer */}
-              <iframe
-                src={url}
-                title={material?.title ?? "Material"}
-                className="hidden h-[82vh] w-full md:block"
-              />
+              {isMobile ? (
+                /* Mobile PDF viewer */
+                <div className="flex min-h-[70vh] flex-col items-center justify-center px-6 text-center">
+                  <div className="text-5xl">📄</div>
 
-              {/* Mobile PDF viewer */}
-              <div className="flex min-h-[70vh] flex-col items-center justify-center px-6 text-center md:hidden">
-                <div className="text-5xl">📄</div>
+                  <h2 className="mt-5 text-lg font-semibold text-slate-800">
+                    PDF ready to view
+                  </h2>
 
-                <h2 className="mt-5 text-lg font-semibold text-slate-800">
-                  PDF ready to view
-                </h2>
+                  <p className="mt-2 max-w-sm text-sm leading-relaxed text-slate-500">
+                    Your phone&apos;s browser cannot display this PDF
+                    inside the page. Open it directly to view it.
+                  </p>
 
-                <p className="mt-2 max-w-sm text-sm leading-relaxed text-slate-500">
-                  Your phone&apos;s browser cannot display this PDF
-                  inside the page. Open it directly to view it.
-                </p>
-
-                <a
-                  href={url.split("#")[0]}
-                  className="mt-6 inline-flex items-center justify-center rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
-                >
-                  📖 Open PDF
-                </a>
-              </div>
+                  <a
+                    href={url.split("#")[0]}
+                    className="mt-6 inline-flex items-center justify-center rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                  >
+                    📖 Open PDF
+                  </a>
+                </div>
+              ) : (
+                /* Desktop PDF viewer */
+                <iframe
+                  src={url}
+                  title={material?.title ?? "Material"}
+                  className="h-[82vh] w-full"
+                />
+              )}
             </div>
 
             <aside className="space-y-4">
