@@ -1,27 +1,91 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import {
-  supabase,
-  MATERIAL_TYPES,
-  EXAM_TYPES,
-  labelOf,
-} from "@/lib/supabase";
+import { supabase, MATERIAL_TYPES, labelOf } from "@/lib/supabase";
 import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
 import { trackEvent } from "@/lib/analytics";
 
 type Row = Record<string, any>;
 
-const SELECT =
-  "id, title, material_type, exam_type, academic_year, view_count, created_at, subject_id, is_common_first_year, subjects!materials_subject_id_fkey(id, name, subject_code)";
+function normalize(value: string | null | undefined) {
+  return (value ?? "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[–—]/g, "-")
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cleanSlug(value: string | null | undefined) {
+  return normalize(value).replace(/[\s-]+/g, "");
+}
+
+function academicYearMatches(value: string | null | undefined, requested: string) {
+  if (!requested) return true;
+  if (!value) return false;
+  const actual = normalize(value).replace(/\//g, "-");
+  const wanted = normalize(requested).replace(/\//g, "-");
+  if (actual === wanted) return true;
+  if (/^20\d{2}$/.test(wanted)) return actual.startsWith(wanted + "-") || actual === wanted;
+  const parts = wanted.split("-");
+  if (parts.length === 2) {
+    const end = actual.split("-")[1] ?? "";
+    return actual.startsWith(parts[0] + "-") && (end === parts[1] || end.endsWith(parts[1]));
+  }
+  return actual.includes(wanted);
+}
+
+function humanizeAssessment(slug: string | null | undefined, name?: string | null) {
+  if (name) return name;
+  const known: Record<string, string> = { cae1: "CAE 1", cae2: "CAE 2", ct1: "CT 1", ct2: "CT 2", internal: "Internal", put: "PUT", mid_sem: "Mid Semester", end_sem: "End Semester", practical: "Practical", assignment: "Assignment" };
+  const key = String(slug ?? "").toLowerCase();
+  return known[key] ?? String(slug ?? "").replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function materialTypeFromQuery(q: string) {
+  const n = normalize(q);
+  if (/\b(pyq|previous year|question paper|question papers)\b/.test(n)) return "paper";
+  if (/\b(answer|answers|solution|solutions|answer pdf)\b/.test(n)) return "answer_pdf";
+  if (/\b(important question|important questions)\b/.test(n)) return "important_questions";
+  if (/\b(notes|note)\b/.test(n)) return "notes";
+  if (/\bsyllabus\b/.test(n)) return "syllabus";
+  if (/\b(practical|lab)\b/.test(n)) return "practical";
+  return "";
+}
+
+function detectAcademicYear(q: string) {
+  return normalize(q).match(/\b20\d{2}(?:[-/]20?\d{2})?\b/)?.[0] ?? "";
+}
+
+function rowText(row: Row) {
+  return normalize([
+    row.title, row.subject_name, row.subject_code, row.assessment_name, row.exam_type,
+    row.college_name, row.college_short_name, row.university_name, row.university_short_name,
+    row.course_name, row.course_short_name, row.branch_name, row.branch_short_name,
+    row.semester_name, row.academic_year, row.material_type,
+  ].filter(Boolean).join(" "));
+}
+
+function rowMatchesFilter(row: Row, params: { type: string; exam: string; subject: string; semester: string; branch: string; college: string; university: string; year: string; commonFirstYear: boolean }) {
+  if (params.type && row.material_type !== params.type) return false;
+  if (params.exam && cleanSlug(row.exam_type) !== cleanSlug(params.exam)) return false;
+  if (params.subject && row.subject_id !== params.subject) return false;
+  if (params.semester && String(row.semester_id) !== params.semester && String(row.semester_number) !== params.semester) return false;
+  if (params.branch && row.branch_id !== params.branch) return false;
+  if (params.college && row.college_id !== params.college) return false;
+  if (params.university && row.university_id !== params.university) return false;
+  if (params.year && Number(row.study_year ?? row.year_number) !== Number(params.year)) return false;
+  if (params.commonFirstYear && !row.is_common_first_year) return false;
+  return true;
+}
 
 function Results() {
   const params = useSearchParams();
   const router = useRouter();
-
   const q = params.get("q") ?? "";
   const type = params.get("type") ?? "";
   const exam = params.get("exam") ?? "";
@@ -36,7 +100,7 @@ function Results() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [sort, setSort] = useState("newest");
+  const [sort, setSort] = useState("relevance");
   const [term, setTerm] = useState(q);
 
   useEffect(() => setTerm(q), [q]);
@@ -47,512 +111,70 @@ function Results() {
     async function run() {
       setLoading(true);
       setError("");
-
       try {
         const raw = q.trim();
-        const normalized = raw
-          .toLowerCase()
-          .replace(/[–—]/g, "-")
-          .replace(/\s+/g, " ")
-          .trim();
+        const detectedType = type || materialTypeFromQuery(raw);
+        const requestedYear = detectAcademicYear(raw);
+        const rpcQuery = raw || "";
 
-        // ------------------------------------------------------------
-        // Parse the student's natural search wording.
-        // Examples:
-        // "CAE paper physics sem 1"
-        // "physics 1st year"
-        // "sem 1 physics"
-        // "physics cae1 2024"
-        // ------------------------------------------------------------
-        const semesterNumbers = new Set<number>();
-
-        const semesterMatches = normalized.matchAll(
-          /\b(?:sem|semester)\s*[-:]?\s*([1-8])\b/g
-        );
-
-        for (const match of semesterMatches) {
-          semesterNumbers.add(Number(match[1]));
-        }
-
-        const yearPatterns: Array<[RegExp, number]> = [
-          [/\b(?:1st|1|first)\s*year\b/, 1],
-          [/\b(?:2nd|2|second)\s*year\b/, 2],
-          [/\b(?:3rd|3|third)\s*year\b/, 3],
-          [/\b(?:4th|4|fourth)\s*year\b/, 4],
-        ];
-
-        for (const [pattern, year] of yearPatterns) {
-          if (pattern.test(normalized)) {
-            semesterNumbers.add(year * 2 - 1);
-            semesterNumbers.add(year * 2);
-            break;
-          }
-        }
-
-        // Also understand shorthand such as "s1" / "s 1".
-        const shortSemester = normalized.match(/\bs\s*([1-8])\b/);
-        if (shortSemester) semesterNumbers.add(Number(shortSemester[1]));
-
-        // Exam aliases.
-        let detectedExam = exam;
-
-        if (!detectedExam) {
-          if (/\bcae\s*1\b|\bcae1\b/.test(normalized))
-            detectedExam = "cae1";
-          else if (/\bcae\s*2\b|\bcae2\b/.test(normalized))
-            detectedExam = "cae2";
-          else if (/\bmid\s*[- ]?sem(?:ester)?\b/.test(normalized))
-            detectedExam = "mid_sem";
-          else if (/\bend\s*[- ]?sem(?:ester)?\b/.test(normalized))
-            detectedExam = "end_sem";
-          else if (/\bexternal\b/.test(normalized))
-            detectedExam = "external";
-          else if (/\binternal\b/.test(normalized))
-            detectedExam = "internal";
-          else if (/\bpractical\b/.test(normalized))
-            detectedExam = "practical";
-          else if (/\bassignment\b/.test(normalized))
-            detectedExam = "assignment";
-        }
-
-        // Material aliases.
-        let detectedType = type;
-
-        if (!detectedType) {
-          if (
-            /\bquestion\s*paper\b|\bquestion\s*papers\b/.test(normalized)
-          ) {
-            detectedType = "paper";
-          } else if (
-            /\banswer(?:s)?\b|\bsolution(?:s)?\b/.test(normalized)
-          ) {
-            detectedType = "answer_pdf";
-          } else if (
-            /\bimportant\s*questions?\b/.test(normalized)
-          ) {
-            detectedType = "important_questions";
-          } else if (/\bnotes?\b/.test(normalized)) {
-            detectedType = "notes";
-          } else if (/\bsyllabus\b/.test(normalized)) {
-            detectedType = "syllabus";
-          } else if (/\bpractical\b|\blab\b/.test(normalized)) {
-            detectedType = "practical";
-          }
-        }
-
-        // Academic year, e.g. "2024" or "2024-25".
-        const academicYearMatch = normalized.match(
-          /\b(20\d{2}(?:[-/]\d{2,4})?)\b/
-        );
-        const detectedAcademicYear = academicYearMatch?.[1] ?? "";
-
-        const stopWords = new Set([
-          "a",
-          "an",
-          "the",
-          "for",
-          "of",
-          "in",
-          "on",
-          "to",
-          "and",
-          "or",
-          "show",
-          "find",
-          "give",
-          "me",
-          "please",
-          "want",
-          "need",
-          "all",
-          "get",
-          "search",
-          "looking",
-          "look",
-          "with",
-          "from",
-          "my",
-          "paper",
-          "papers",
-          "question",
-          "questions",
-          "questionpaper",
-          "questionpapers",
-          "answer",
-          "answers",
-          "solution",
-          "solutions",
-          "notes",
-          "note",
-          "syllabus",
-          "practical",
-          "lab",
-          "cae",
-          "mid",
-          "semester",
-          "sem",
-          "year",
-          "first",
-          "second",
-          "third",
-          "fourth",
-          "1st",
-          "2nd",
-          "3rd",
-          "4th",
-          "external",
-          "internal",
-          "assignment",
-        ]);
-
-        const tokens = normalized
-          .replace(/[^a-z0-9\s-]/g, " ")
-          .split(/\s+/)
-          .map((token) => token.trim())
-          .filter(Boolean);
-
-        const textTokens = tokens.filter((token) => {
-          if (stopWords.has(token)) return false;
-          if (/^\d+$/.test(token)) return false;
-          if (/^cae\d$/.test(token)) return false;
-          if (/^s\d$/.test(token)) return false;
-          if (/^20\d{2}(?:[-/]\d{2,4})?$/.test(token)) return false;
-          return token.length >= 2;
+        // Primary search: one database RPC. It already returns the complete
+        // University -> College -> Course -> Branch -> Study Year -> Subject
+        // -> Assessment hierarchy, so the browser does not need to perform
+        // fragile multi-table discovery or raw .or() filters.
+        const { data, error: rpcError } = await supabase.rpc("search_ourprep", {
+          search_query: rpcQuery,
+          result_limit: 200,
         });
 
-        // ------------------------------------------------------------
-        // Resolve the hierarchy selected through URL filters.
-        // ------------------------------------------------------------
-        let navigationSubjectIds: string[] | null = null;
+        if (rpcError) throw rpcError;
 
-        if (subject) {
-          navigationSubjectIds = [subject];
-        } else if (semester) {
-          const { data, error: subjectError } = await supabase
-            .from("subjects")
-            .select("id")
-            .eq("semester_id", semester);
+        let resultRows = ((data ?? []) as Row[]).filter(row => row.is_published !== false);
 
-          if (subjectError) throw subjectError;
+        // Apply explicit URL filters after the relevance-ranked RPC result.
+        resultRows = resultRows.filter(row => rowMatchesFilter(row, {
+          type: detectedType, exam, subject, semester, branch, college, university, year, commonFirstYear,
+        }));
 
-          navigationSubjectIds = (data ?? []).map((r: Row) => r.id);
-        } else if (branch) {
-          let semQuery = supabase
-            .from("semesters")
-            .select("id")
-            .eq("branch_id", branch);
-
-          if (year) {
-            semQuery = semQuery.eq("year_number", Number(year));
-          }
-
-          const { data: sems, error: semError } = await semQuery;
-
-          if (semError) throw semError;
-
-          const semIds = (sems ?? []).map((r: Row) => r.id);
-
-          if (semIds.length === 0) {
-            navigationSubjectIds = [];
-          } else {
-            const { data, error: subjectError } = await supabase
-              .from("subjects")
-              .select("id")
-              .in("semester_id", semIds);
-
-            if (subjectError) throw subjectError;
-
-            navigationSubjectIds = (data ?? []).map((r: Row) => r.id);
-          }
-        } else if (college || university) {
-          let branchIds: string[] = [];
-
-          if (college) {
-            const { data, error: branchError } = await supabase
-              .from("branches")
-              .select("id")
-              .eq("college_id", college);
-
-            if (branchError) throw branchError;
-
-            branchIds = (data ?? []).map((r: Row) => r.id);
-          } else {
-            const { data: cols, error: collegeError } = await supabase
-              .from("colleges")
-              .select("id")
-              .eq("university_id", university);
-
-            if (collegeError) throw collegeError;
-
-            const colIds = (cols ?? []).map((r: Row) => r.id);
-
-            if (colIds.length > 0) {
-              const { data, error: branchError } = await supabase
-                .from("branches")
-                .select("id")
-                .in("college_id", colIds);
-
-              if (branchError) throw branchError;
-
-              branchIds = (data ?? []).map((r: Row) => r.id);
-            }
-          }
-
-          if (branchIds.length === 0) {
-            navigationSubjectIds = [];
-          } else {
-            let semQuery = supabase
-              .from("semesters")
-              .select("id")
-              .in("branch_id", branchIds);
-
-            if (year) {
-              semQuery = semQuery.eq("year_number", Number(year));
-            }
-
-            const { data: sems, error: semError } = await semQuery;
-
-            if (semError) throw semError;
-
-            const semIds = (sems ?? []).map((r: Row) => r.id);
-
-            if (semIds.length === 0) {
-              navigationSubjectIds = [];
-            } else {
-              const { data, error: subjectError } = await supabase
-                .from("subjects")
-                .select("id")
-                .in("semester_id", semIds);
-
-              if (subjectError) throw subjectError;
-
-              navigationSubjectIds = (data ?? []).map((r: Row) => r.id);
-            }
-          }
+        if (requestedYear) {
+          resultRows = resultRows.filter(row => academicYearMatches(row.academic_year, requestedYear));
         }
 
-        // ------------------------------------------------------------
-        // Resolve semester/year from natural language.
-        // ------------------------------------------------------------
-        let naturalSemesterSubjectIds: string[] | null = null;
-
-        if (semesterNumbers.size > 0) {
-          let semesterQuery = supabase
-            .from("semesters")
-            .select("id")
-            .in(
-              "semester_number",
-              Array.from(semesterNumbers)
-            );
-
-          if (branch) {
-            semesterQuery = semesterQuery.eq("branch_id", branch);
-          }
-
-          if (year) {
-            semesterQuery = semesterQuery.eq(
-              "year_number",
-              Number(year)
-            );
-          }
-
-          const {
-            data: sems,
-            error: semesterError,
-          } = await semesterQuery;
-
-          if (semesterError) throw semesterError;
-
-          const semIds = (sems ?? []).map((r: Row) => r.id);
-
-          if (semIds.length === 0) {
-            naturalSemesterSubjectIds = [];
-          } else {
-            const { data, error: subjectError } = await supabase
-              .from("subjects")
-              .select("id")
-              .in("semester_id", semIds);
-
-            if (subjectError) throw subjectError;
-
-            naturalSemesterSubjectIds = (data ?? []).map(
-              (r: Row) => r.id
-            );
-          }
-        }
-
-        // ------------------------------------------------------------
-        // Find subjects using each meaningful word.
-        // ------------------------------------------------------------
-        let textSubjectIds: string[] = [];
-
-        if (textTokens.length > 0) {
-          const subjectParts: string[] = [];
-
-          for (const token of textTokens.slice(0, 8)) {
-            subjectParts.push("name.ilike.%" + token + "%");
-            subjectParts.push(
-              "subject_code.ilike.%" + token + "%"
-            );
-          }
-
-          const { data, error: subjectError } = await supabase
-            .from("subjects")
-            .select("id")
-            .or(subjectParts.join(","));
-
-          if (subjectError) throw subjectError;
-
-          textSubjectIds = (data ?? []).map((r: Row) => r.id);
-        }
-
-        // If the query contains both a subject and semester/year,
-        // intersect those sets.
-        let resolvedSubjectIds: string[] | null = null;
-
-        if (textTokens.length > 0) {
-          resolvedSubjectIds = textSubjectIds;
-        }
-
-        if (naturalSemesterSubjectIds !== null) {
-          resolvedSubjectIds =
-            resolvedSubjectIds === null
-              ? naturalSemesterSubjectIds
-              : resolvedSubjectIds.filter((id) =>
-                  naturalSemesterSubjectIds!.includes(id)
-                );
-        }
-
-        if (navigationSubjectIds !== null) {
-          resolvedSubjectIds =
-            resolvedSubjectIds === null
-              ? navigationSubjectIds
-              : resolvedSubjectIds.filter((id) =>
-                  navigationSubjectIds!.includes(id)
-                );
-        }
-
-        // A common first-year paper is intentionally not tied
-        // to the student's selected branch.
-        if (commonFirstYear) {
-          resolvedSubjectIds = null;
-        }
-
-        // ------------------------------------------------------------
-        // Build the material query.
-        // ------------------------------------------------------------
-        let query = supabase
-          .from("materials")
-          .select(SELECT)
-          .eq("is_published", true)
-          .limit(100);
-
-        if (commonFirstYear) {
-          query = query.eq("is_common_first_year", true);
-        }
-
-        if (detectedType) {
-          query = query.eq("material_type", detectedType);
-        }
-
-        if (detectedExam) {
-          query = query.eq("exam_type", detectedExam);
-        }
-
-        if (detectedAcademicYear) {
-          query = query.ilike(
-            "academic_year",
-            "%" + detectedAcademicYear + "%"
-          );
-        }
-
-        if (!commonFirstYear) {
-          if (resolvedSubjectIds !== null) {
-            if (resolvedSubjectIds.length === 0) {
-              if (!cancelled) {
-                setRows([]);
-                setLoading(false);
-              }
-
-              return;
-            }
-
-            query = query.in(
-              "subject_id",
-              resolvedSubjectIds
-            );
-          } else if (navigationSubjectIds !== null) {
-            if (navigationSubjectIds.length === 0) {
-              if (!cancelled) {
-                setRows([]);
-                setLoading(false);
-              }
-
-              return;
-            }
-
-            query = query.in(
-              "subject_id",
-              navigationSubjectIds
-            );
-          }
-        }
-
-        // If no subject was found, fall back to title searching.
-        if (
-          textTokens.length > 0 &&
-          textSubjectIds.length === 0
-        ) {
-          const titleParts = textTokens
-            .slice(0, 8)
-            .map(
-              (token) => "title.ilike.%" + token + "%"
-            );
-
-          query = query.or(titleParts.join(","));
-        }
-
+        // The RPC is the source of ranking. Keep that ranking for the default
+        // view and only override it when the user explicitly chooses a sort.
         if (sort === "newest") {
-          query = query.order("created_at", {
-            ascending: false,
-          });
+          resultRows.sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")));
         } else if (sort === "oldest") {
-          query = query.order("created_at", {
-            ascending: true,
-          });
+          resultRows.sort((a, b) => String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")));
+        } else if (sort === "popular") {
+          resultRows.sort((a, b) => Number(b.view_count ?? 0) - Number(a.view_count ?? 0));
         } else {
-          query = query.order("view_count", {
-            ascending: false,
-          });
+          resultRows.sort((a, b) => Number(b.relevance ?? 0) - Number(a.relevance ?? 0));
         }
 
-        const { data, error: err } = await query;
+        // Defensive fallback for an older RPC deployment: if the RPC returns
+        // no rows for an empty search, load published materials directly.
+        if (!raw && resultRows.length === 0) {
+          const { data: fallback, error: fallbackError } = await supabase
+            .from("materials")
+            .select("id,title,material_type,exam_type,academic_year,view_count,created_at,subject_id,is_common_first_year")
+            .eq("is_published", true)
+            .order("created_at", { ascending: false })
+            .limit(200);
+          if (fallbackError) throw fallbackError;
+          resultRows = ((fallback ?? []) as Row[]);
+        }
 
-        if (err) throw err;
-
-        const resultCount = data?.length ?? 0;
-
-        // Record the search only when the student actually
-        // entered a search term.
-        if (raw.trim()) {
-          trackEvent({
-            event_type: "search",
-            search_query: raw.trim(),
-            result_count: resultCount,
-            page_path: "/search",
-          });
+        if (raw) {
+          trackEvent({ event_type: "search", search_query: raw, result_count: resultRows.length, page_path: "/search" });
         }
 
         if (!cancelled) {
-          setRows(data ?? []);
+          setRows(resultRows);
           setLoading(false);
         }
       } catch (err: any) {
         if (!cancelled) {
-          setError(
-            err?.message ??
-              "Search failed. Please try again."
-          );
+          setError(err?.message ?? "Search failed. Please try again.");
           setRows([]);
           setLoading(false);
         }
@@ -560,41 +182,19 @@ function Results() {
     }
 
     run();
+    return () => { cancelled = true; };
+  }, [q, type, exam, subject, semester, branch, college, university, year, commonFirstYear, sort]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    q,
-    type,
-    exam,
-    subject,
-    semester,
-    branch,
-    college,
-    university,
-    year,
-    commonFirstYear,
-    sort,
-  ]);
-
-  const heading = q
-    ? "Results for " + q
-    : type
-    ? labelOf(MATERIAL_TYPES, type)
-    : exam
-    ? labelOf(EXAM_TYPES, exam)
-    : "All materials";
+  const heading = useMemo(() => {
+    if (q) return `Results for ${q}`;
+    if (type) return labelOf(MATERIAL_TYPES, type);
+    if (exam) return humanizeAssessment(exam);
+    return "All materials";
+  }, [q, type, exam]);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-
-    router.push(
-      term.trim()
-        ? "/search?q=" +
-            encodeURIComponent(term.trim())
-        : "/search"
-    );
+    router.push(term.trim() ? `/search?q=${encodeURIComponent(term.trim())}` : "/search");
   }
 
   return (
@@ -603,7 +203,7 @@ function Results() {
 
       <main className="flex-1 bg-slate-50">
         <div className="border-b border-slate-200 bg-white">
-          <div className="mx-auto max-w-5xl px-5 py-10">
+          <div className="mx-auto max-w-6xl px-5 py-10">
             <h1 className="text-3xl font-semibold tracking-tight">
               {heading}
             </h1>
@@ -611,20 +211,23 @@ function Results() {
             <p className="mt-2 text-sm text-slate-500">
               {loading
                 ? "Searching..."
-                : rows.length +
-                  " material" +
-                  (rows.length === 1 ? "" : "s") +
-                  " found"}
+                : `${rows.length} material${
+                    rows.length === 1
+                      ? ""
+                      : "s"
+                  } found`}
             </p>
 
             <form
               onSubmit={submit}
-              className="mt-6 flex max-w-xl gap-2"
+              className="mt-6 flex max-w-2xl gap-2"
             >
               <input
                 value={term}
-                onChange={(e) => setTerm(e.target.value)}
-                placeholder="Search paper code or subject"
+                onChange={(e) =>
+                  setTerm(e.target.value)
+                }
+                placeholder="Search college, branch, subject, assessment or paper..."
                 className="field"
               />
 
@@ -635,10 +238,15 @@ function Results() {
                 Search
               </button>
             </form>
+
+            <p className="mt-3 text-xs text-slate-400">
+              Try: GCET CAE1 maths 2024 · DGI CT1
+              CSE 2024 · 1st year maths · CSE PYQ
+            </p>
           </div>
         </div>
 
-        <div className="mx-auto max-w-5xl px-5 py-8">
+        <div className="mx-auto max-w-6xl px-5 py-8">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex flex-wrap gap-2">
               <Link
@@ -653,30 +261,50 @@ function Results() {
                 All
               </Link>
 
-              {MATERIAL_TYPES.map((m) => (
-                <Link
-                  key={m.value}
-                  href={"/search?type=" + m.value}
-                  className={
-                    "rounded-full border px-3.5 py-1.5 text-xs transition " +
-                    (type === m.value
-                      ? "border-[#0b1020] bg-[#0b1020] text-white"
-                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-400")
-                  }
-                >
-                  {m.label}
-                </Link>
-              ))}
+              {MATERIAL_TYPES.map(
+                (material) => (
+                  <Link
+                    key={material.value}
+                    href={
+                      "/search?type=" +
+                      material.value
+                    }
+                    className={
+                      "rounded-full border px-3.5 py-1.5 text-xs transition " +
+                      (type ===
+                      material.value
+                        ? "border-[#0b1020] bg-[#0b1020] text-white"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-400")
+                    }
+                  >
+                    {material.label}
+                  </Link>
+                )
+              )}
             </div>
 
             <select
               value={sort}
-              onChange={(e) => setSort(e.target.value)}
+              onChange={(e) =>
+                setSort(e.target.value)
+              }
               className="field max-w-[180px]"
             >
-              <option value="newest">Newest first</option>
-              <option value="oldest">Oldest first</option>
-              <option value="popular">Most viewed</option>
+              <option value="relevance">
+                Most relevant
+              </option>
+
+              <option value="newest">
+                Newest first
+              </option>
+
+              <option value="oldest">
+                Oldest first
+              </option>
+
+              <option value="popular">
+                Most viewed
+              </option>
             </select>
           </div>
 
@@ -691,7 +319,7 @@ function Results() {
               {[0, 1, 2].map((i) => (
                 <div
                   key={i}
-                  className="h-24 animate-pulse rounded-2xl border border-slate-200 bg-white"
+                  className="h-32 animate-pulse rounded-2xl border border-slate-200 bg-white"
                 />
               ))}
             </div>
@@ -705,9 +333,16 @@ function Results() {
                   Nothing here yet
                 </p>
 
-                <p className="mx-auto mt-2 max-w-sm text-sm text-slate-500">
-                  Try a subject name or paper code, or
-                  browse step by step from the homepage.
+                <p className="mx-auto mt-2 max-w-md text-sm text-slate-500">
+                  Try a subject, college,
+                  branch, assessment or paper
+                  code.
+                </p>
+
+                <p className="mx-auto mt-2 max-w-lg text-xs text-slate-400">
+                  Example: GCET CAE1 maths
+                  2024, DGI CT1 CSE 2024,
+                  Galgotias DBMS, or CSE PYQ.
                 </p>
 
                 <Link
@@ -719,56 +354,90 @@ function Results() {
               </div>
             )}
 
-          {!loading && rows.length > 0 && (
-            <ul className="mt-8 space-y-3">
-              {rows.map((m) => (
-                <li key={m.id}>
-                  <Link
-                    href={"/view/" + m.id}
-                    className="lift block rounded-2xl border border-slate-200 bg-white p-5"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <p className="text-[15px] font-semibold">
-                          {m.title}
-                        </p>
+          {!loading &&
+            rows.length > 0 && (
+              <ul className="mt-8 space-y-3">
+                {rows.map((material) => {
+                  const assessmentLabel =
+                    material.assessment_name ??
+                    humanizeAssessment(material.exam_type);
 
-                        <p className="mt-1 text-xs text-slate-500">
-                          {m.subjects?.name}
-                          {m.subjects?.subject_code
-                            ? " - " +
-                              m.subjects.subject_code
-                            : ""}
-                        </p>
-                      </div>
+                  const studyYear = material.study_year ?? material.year_number ?? null;
+                  const hierarchy = [
+                    material.university_short_name || material.university_name,
+                    material.college_short_name || material.college_name,
+                    material.course_short_name || material.course_name,
+                    material.branch_short_name || material.branch_name,
+                    studyYear
+                      ? `${studyYear}${studyYear === 1 ? "st" : studyYear === 2 ? "nd" : studyYear === 3 ? "rd" : "th"} Year`
+                      : null,
+                  ].filter(Boolean);
 
-                      <div className="flex flex-wrap gap-2">
-                        <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700">
-                          {labelOf(
-                            MATERIAL_TYPES,
-                            m.material_type
-                          )}
-                        </span>
+                  return (
+                    <li key={material.id}>
+                      <Link
+                        href={
+                          "/view/" +
+                          material.id
+                        }
+                        className="lift block rounded-2xl border border-slate-200 bg-white p-5"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-4">
+                          <div className="min-w-0">
+                            <p className="text-[15px] font-semibold">
+                              {material.title}
+                            </p>
 
-                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] text-slate-600">
-                          {labelOf(
-                            EXAM_TYPES,
-                            m.exam_type
-                          )}
-                        </span>
+                            <p className="mt-1 text-sm text-slate-600">
+                              {material.subject_name ?? "Subject"}
+                              {material.subject_code
+                                ? ` — ${material.subject_code}`
+                                : ""}
+                            </p>
 
-                        {m.academic_year && (
-                          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] text-slate-600">
-                            {m.academic_year}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
+                            {hierarchy.length >
+                              0 && (
+                              <p className="mt-2 text-xs leading-5 text-slate-500">
+                                {hierarchy.join(
+                                  " • "
+                                )}
+                              </p>
+                            )}
+
+                            {material.semester_name && (
+                              <p className="mt-1 text-xs text-slate-400">
+                                {material.semester_name}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700">
+                              {labelOf(
+                                MATERIAL_TYPES,
+                                material.material_type
+                              )}
+                            </span>
+
+                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700">
+                              {assessmentLabel}
+                            </span>
+
+                            {material.academic_year && (
+                              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] text-slate-600">
+                                {
+                                  material.academic_year
+                                }
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
         </div>
       </main>
 

@@ -17,7 +17,13 @@ function Panel({
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-6">
       <h2 className="text-sm font-semibold">{title}</h2>
-      {subtitle && <p className="mt-1 text-xs text-slate-500">{subtitle}</p>}
+
+      {subtitle && (
+        <p className="mt-1 text-xs text-slate-500">
+          {subtitle}
+        </p>
+      )}
+
       <div className="mt-4">{children}</div>
     </section>
   );
@@ -34,6 +40,7 @@ export default function StructurePage() {
   const [branches, setBranches] = useState<Row[]>([]);
   const [semesters, setSemesters] = useState<Row[]>([]);
   const [subjects, setSubjects] = useState<Row[]>([]);
+  const [assessmentTypes, setAssessmentTypes] = useState<Row[]>([]);
 
   const [uniId, setUniId] = useState("");
   const [collegeId, setCollegeId] = useState("");
@@ -50,6 +57,9 @@ export default function StructurePage() {
   const [subjectName, setSubjectName] = useState("");
   const [subjectCode, setSubjectCode] = useState("");
 
+  const [assessmentName, setAssessmentName] = useState("");
+  const [assessmentAliases, setAssessmentAliases] = useState("");
+
   const [editKey, setEditKey] = useState("");
   const [editA, setEditA] = useState("");
   const [editB, setEditB] = useState("");
@@ -59,71 +69,136 @@ export default function StructurePage() {
       .from("universities")
       .select("id, name")
       .order("name");
+
     setUniversities(data ?? []);
   }
+
   async function loadCourses() {
     const { data } = await supabase
       .from("courses")
       .select("id, name, short_name, is_active")
       .order("name");
+
     setCourses(data ?? []);
   }
+
   async function loadColleges(id = uniId) {
-    if (!id) return setColleges([]);
+    if (!id) {
+      setColleges([]);
+      return;
+    }
+
     const { data } = await supabase
       .from("colleges")
       .select("id, name, city, is_active")
       .eq("university_id", id)
       .order("name");
+
     setColleges(data ?? []);
   }
+
   async function loadBranches(id = collegeId) {
-    if (!id) return setBranches([]);
+    if (!id) {
+      setBranches([]);
+      return;
+    }
+
     const { data } = await supabase
       .from("branches")
       .select("id, name, short_name, is_active")
       .eq("college_id", id)
       .order("name");
+
     setBranches(data ?? []);
   }
+
   async function loadSemesters(id = branchId) {
-    if (!id) return setSemesters([]);
+    if (!id) {
+      setSemesters([]);
+      return;
+    }
+
     const { data } = await supabase
       .from("semesters")
       .select("id, name, semester_number, is_active")
       .eq("branch_id", id)
       .order("semester_number");
+
     setSemesters(data ?? []);
   }
+
   async function loadSubjects(id = semesterId) {
-    if (!id) return setSubjects([]);
+    if (!id) {
+      setSubjects([]);
+      return;
+    }
+
     const { data } = await supabase
       .from("subjects")
       .select("id, name, subject_code, is_active")
       .eq("semester_id", id)
       .order("name");
+
     setSubjects(data ?? []);
+  }
+
+  async function loadAssessmentTypes(id = collegeId) {
+    if (!id) {
+      setAssessmentTypes([]);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("college_assessment_types")
+      .select(
+        "id, college_id, name, slug, aliases, is_active"
+      )
+      .eq("college_id", id)
+      .order("name");
+
+    if (error) {
+      setMsg("Assessment types: " + error.message);
+      return;
+    }
+
+    setAssessmentTypes(data ?? []);
   }
 
   useEffect(() => {
     async function init() {
-      const { data: userData } = await supabase.auth.getUser();
+      const { data: userData } =
+        await supabase.auth.getUser();
+
       const user = userData?.user;
+
       if (!user) {
         window.location.href = "/admin";
         return;
       }
+
       const { data: adminRows, error } = await supabase
         .from("admin_users")
         .select("user_id")
         .eq("user_id", user.id);
-      if (error) return setDenied("Database error: " + error.message);
-      if (!adminRows || adminRows.length === 0)
-        return setDenied("This account is not an admin.");
+
+      if (error) {
+        return setDenied(
+          "Database error: " + error.message
+        );
+      }
+
+      if (!adminRows || adminRows.length === 0) {
+        return setDenied(
+          "This account is not an admin."
+        );
+      }
+
       await loadUniversities();
       await loadCourses();
+
       setReady(true);
     }
+
     init();
   }, []);
 
@@ -131,23 +206,31 @@ export default function StructurePage() {
     setCollegeId("");
     setBranchId("");
     setSemesterId("");
+
     setBranches([]);
     setSemesters([]);
     setSubjects([]);
+    setAssessmentTypes([]);
+
     loadColleges(uniId);
   }, [uniId]);
 
   useEffect(() => {
     setBranchId("");
     setSemesterId("");
+
     setSemesters([]);
     setSubjects([]);
+    setAssessmentTypes([]);
+
     loadBranches(collegeId);
+    loadAssessmentTypes(collegeId);
   }, [collegeId]);
 
   useEffect(() => {
     setSemesterId("");
     setSubjects([]);
+
     loadSemesters(branchId);
   }, [branchId]);
 
@@ -157,117 +240,390 @@ export default function StructurePage() {
 
   async function addCourse(e: React.FormEvent) {
     e.preventDefault();
+
     if (!courseName.trim()) return;
-    const { error } = await supabase.from("courses").insert({
-      name: courseName.trim(),
-      slug: makeSlug(courseName),
-      is_active: true,
-    });
-    if (error) return setMsg("Course: " + error.message);
+
+    const { error } = await supabase
+      .from("courses")
+      .insert({
+        name: courseName.trim(),
+        slug: makeSlug(courseName),
+        is_active: true,
+      });
+
+    if (error) {
+      return setMsg("Course: " + error.message);
+    }
+
     setCourseName("");
     setMsg("Course added.");
+
     loadCourses();
   }
 
   async function addCollege(e: React.FormEvent) {
     e.preventDefault();
-    if (!uniId || !collegeName.trim()) return setMsg("Pick a university first.");
-    const { error } = await supabase.from("colleges").insert({
-      university_id: uniId,
-      name: collegeName.trim(),
-      slug: makeSlug(collegeName),
-      city: collegeCity.trim() || null,
-      is_active: true,
-    });
-    if (error) return setMsg("College: " + error.message);
+
+    if (!uniId || !collegeName.trim()) {
+      return setMsg("Pick a university first.");
+    }
+
+    const { error } = await supabase
+      .from("colleges")
+      .insert({
+        university_id: uniId,
+        name: collegeName.trim(),
+        slug: makeSlug(collegeName),
+        city: collegeCity.trim() || null,
+        is_active: true,
+      });
+
+    if (error) {
+      return setMsg("College: " + error.message);
+    }
+
     setCollegeName("");
     setCollegeCity("");
     setMsg("College added.");
+
     loadColleges();
   }
 
   async function addBranch(e: React.FormEvent) {
     e.preventDefault();
-    if (!collegeId || !branchName.trim()) return setMsg("Pick a college first.");
+
+    if (!collegeId || !branchName.trim()) {
+      return setMsg("Pick a college first.");
+    }
+
     const payload: Row = {
       college_id: collegeId,
       name: branchName.trim(),
       slug: makeSlug(branchName),
       is_active: true,
     };
-    if (branchCourse) payload.course_id = branchCourse;
-    const { error } = await supabase.from("branches").insert(payload);
-    if (error) return setMsg("Branch: " + error.message);
+
+    if (branchCourse) {
+      payload.course_id = branchCourse;
+    }
+
+    const { error } = await supabase
+      .from("branches")
+      .insert(payload);
+
+    if (error) {
+      return setMsg("Branch: " + error.message);
+    }
+
     setBranchName("");
     setMsg("Branch added.");
+
     loadBranches();
   }
 
   async function addSemester(e: React.FormEvent) {
     e.preventDefault();
-    if (!branchId || !semNumber) return setMsg("Pick a branch and a number.");
-    const { error } = await supabase.from("semesters").insert({
-      branch_id: branchId,
-      semester_number: Number(semNumber),
-      name: semName.trim() || "Semester " + semNumber,
-      is_active: true,
-    });
-    if (error) return setMsg("Semester: " + error.message);
+
+    if (!branchId || !semNumber) {
+      return setMsg(
+        "Pick a branch and a number."
+      );
+    }
+
+    const { error } = await supabase
+      .from("semesters")
+      .insert({
+        branch_id: branchId,
+        semester_number: Number(semNumber),
+        name:
+          semName.trim() ||
+          "Semester " + semNumber,
+        is_active: true,
+      });
+
+    if (error) {
+      return setMsg(
+        "Semester: " + error.message
+      );
+    }
+
     setSemName("");
     setSemNumber("");
     setMsg("Semester added.");
+
     loadSemesters();
   }
 
   async function addSubject(e: React.FormEvent) {
     e.preventDefault();
-    if (!semesterId || !subjectName.trim())
-      return setMsg("Pick a semester first.");
-    const { error } = await supabase.from("subjects").insert({
-      semester_id: semesterId,
-      name: subjectName.trim(),
-      slug: makeSlug(subjectName),
-      subject_code: subjectCode.trim() || null,
-      is_active: true,
-    });
-    if (error) return setMsg("Subject: " + error.message);
+
+    if (!semesterId || !subjectName.trim()) {
+      return setMsg(
+        "Pick a semester first."
+      );
+    }
+
+    const { error } = await supabase
+      .from("subjects")
+      .insert({
+        semester_id: semesterId,
+        name: subjectName.trim(),
+        slug: makeSlug(subjectName),
+        subject_code:
+          subjectCode.trim() || null,
+        is_active: true,
+      });
+
+    if (error) {
+      return setMsg(
+        "Subject: " + error.message
+      );
+    }
+
     setSubjectName("");
     setSubjectCode("");
     setMsg("Subject added.");
+
     loadSubjects();
   }
 
-  async function toggle(table: string, r: Row, reload: () => void) {
+  async function addAssessmentType(
+    e: React.FormEvent
+  ) {
+    e.preventDefault();
+
+    if (!collegeId) {
+      return setMsg(
+        "Pick a college first."
+      );
+    }
+
+    if (!assessmentName.trim()) {
+      return setMsg(
+        "Assessment name cannot be empty."
+      );
+    }
+
+    const aliases = assessmentAliases
+      .split(",")
+      .map((x) => x.trim().toLowerCase())
+      .filter(Boolean);
+
+    const { error } = await supabase
+      .from("college_assessment_types")
+      .insert({
+        college_id: collegeId,
+        name: assessmentName.trim(),
+        slug: makeSlug(assessmentName),
+        aliases,
+        is_active: true,
+      });
+
+    if (error) {
+      return setMsg(
+        "Assessment: " + error.message
+      );
+    }
+
+    setAssessmentName("");
+    setAssessmentAliases("");
+
+    setMsg("Assessment type added.");
+
+    loadAssessmentTypes();
+  }
+
+  async function editAssessmentType(r: Row) {
+    const name = prompt(
+      "Assessment name:",
+      r.name ?? ""
+    );
+
+    if (name === null) return;
+
+    if (!name.trim()) {
+      return setMsg(
+        "Assessment name cannot be empty."
+      );
+    }
+
+    const aliasesInput = prompt(
+      "Aliases (comma separated):",
+      Array.isArray(r.aliases)
+        ? r.aliases.join(", ")
+        : ""
+    );
+
+    if (aliasesInput === null) return;
+
+    const aliases = aliasesInput
+      .split(",")
+      .map((x) => x.trim().toLowerCase())
+      .filter(Boolean);
+
+    const { error } = await supabase
+      .from("college_assessment_types")
+      .update({
+        name: name.trim(),
+        slug: makeSlug(name),
+        aliases,
+      })
+      .eq("id", r.id);
+
+    if (error) {
+      return setMsg(
+        "Assessment: " + error.message
+      );
+    }
+
+    setMsg("Assessment updated.");
+
+    loadAssessmentTypes();
+  }
+
+  async function toggleAssessmentType(r: Row) {
+    const { error } = await supabase
+      .from("college_assessment_types")
+      .update({
+        is_active: !r.is_active,
+      })
+      .eq("id", r.id);
+
+    if (error) {
+      return setMsg(error.message);
+    }
+
+    loadAssessmentTypes();
+  }
+
+  async function removeAssessmentType(r: Row) {
+    if (
+      !confirm(
+        `Delete "${r.name}"?`
+      )
+    ) {
+      return;
+    }
+
+    const { error } = await supabase
+      .from("college_assessment_types")
+      .delete()
+      .eq("id", r.id);
+
+    if (error) {
+      return setMsg(
+        "Assessment: " + error.message
+      );
+    }
+
+    setMsg("Assessment deleted.");
+
+    loadAssessmentTypes();
+  }
+
+  async function toggle(
+    table: string,
+    r: Row,
+    reload: () => void
+  ) {
     const { error } = await supabase
       .from(table)
-      .update({ is_active: !r.is_active })
+      .update({
+        is_active: !r.is_active,
+      })
       .eq("id", r.id);
-    if (error) return setMsg(error.message);
+
+    if (error) {
+      return setMsg(error.message);
+    }
+
     reload();
   }
 
-  async function remove(table: string, r: Row, reload: () => void) {
-    if (!confirm("Delete " + (r.name ?? "this") + "? Everything inside goes too."))
+  async function remove(
+    table: string,
+    r: Row,
+    reload: () => void
+  ) {
+    if (
+      !confirm(
+        "Delete " +
+          (r.name ?? "this") +
+          "? Everything inside goes too."
+      )
+    ) {
       return;
-    const { error } = await supabase.from(table).delete().eq("id", r.id);
-    if (error) return setMsg(error.message);
+    }
+
+    const { error } = await supabase
+      .from(table)
+      .delete()
+      .eq("id", r.id);
+
+    if (error) {
+      return setMsg(error.message);
+    }
+
     reload();
   }
 
-  async function saveEdit(table: string, r: Row, reload: () => void) {
-    if (!editA.trim()) return setMsg("Name cannot be empty.");
-    const payload: Row = { name: editA.trim() };
-    if (table !== "semesters") payload.slug = makeSlug(editA);
-    if (table === "colleges") payload.city = editB.trim() || null;
-    if (table === "subjects") payload.subject_code = editB.trim() || null;
-    if (table === "branches" || table === "courses")
-      payload.short_name = editB.trim() || null;
-    if (table === "semesters" && editB) payload.semester_number = Number(editB);
+  async function saveEdit(
+    table: string,
+    r: Row,
+    reload: () => void
+  ) {
+    if (!editA.trim()) {
+      return setMsg(
+        "Name cannot be empty."
+      );
+    }
 
-    const { error } = await supabase.from(table).update(payload).eq("id", r.id);
-    if (error) return setMsg(error.message);
+    const payload: Row = {
+      name: editA.trim(),
+    };
+
+    if (table !== "semesters") {
+      payload.slug = makeSlug(editA);
+    }
+
+    if (table === "colleges") {
+      payload.city =
+        editB.trim() || null;
+    }
+
+    if (table === "subjects") {
+      payload.subject_code =
+        editB.trim() || null;
+    }
+
+    if (
+      table === "branches" ||
+      table === "courses"
+    ) {
+      payload.short_name =
+        editB.trim() || null;
+    }
+
+    if (
+      table === "semesters" &&
+      editB
+    ) {
+      payload.semester_number =
+        Number(editB);
+    }
+
+    const { error } = await supabase
+      .from(table)
+      .update(payload)
+      .eq("id", r.id);
+
+    if (error) {
+      return setMsg(error.message);
+    }
+
     setEditKey("");
     setMsg("Updated.");
+
     reload();
   }
 
@@ -284,40 +640,74 @@ export default function StructurePage() {
     secondField?: (r: Row) => string;
     secondPlaceholder?: string;
   }) {
-    if (rows.length === 0)
-      return <p className="text-xs text-slate-500">Nothing here yet.</p>;
+    if (rows.length === 0) {
+      return (
+        <p className="text-xs text-slate-500">
+          Nothing here yet.
+        </p>
+      );
+    }
 
     return (
       <ul className="thin-scroll max-h-80 divide-y divide-slate-100 overflow-auto rounded-xl border border-slate-100">
         {rows.map((r) => {
-          const key = table + ":" + r.id;
-          const editing = editKey === key;
+          const key =
+            table + ":" + r.id;
+
+          const editing =
+            editKey === key;
+
           return (
-            <li key={r.id} className="px-4 py-3">
+            <li
+              key={r.id}
+              className="px-4 py-3"
+            >
               {editing ? (
                 <div className="space-y-2">
                   <div className="grid gap-2 sm:grid-cols-2">
                     <input
                       value={editA}
-                      onChange={(e) => setEditA(e.target.value)}
+                      onChange={(e) =>
+                        setEditA(
+                          e.target.value
+                        )
+                      }
                       className="field"
                     />
+
                     <input
                       value={editB}
-                      onChange={(e) => setEditB(e.target.value)}
-                      placeholder={secondPlaceholder ?? "Optional"}
+                      onChange={(e) =>
+                        setEditB(
+                          e.target.value
+                        )
+                      }
+                      placeholder={
+                        secondPlaceholder ??
+                        "Optional"
+                      }
                       className="field"
                     />
                   </div>
+
                   <div className="flex gap-4">
                     <button
-                      onClick={() => saveEdit(table, r, reload)}
+                      onClick={() =>
+                        saveEdit(
+                          table,
+                          r,
+                          reload
+                        )
+                      }
                       className="text-xs font-medium text-indigo-600 hover:underline"
                     >
                       Save
                     </button>
+
                     <button
-                      onClick={() => setEditKey("")}
+                      onClick={() =>
+                        setEditKey("")
+                      }
                       className="text-xs font-medium text-slate-500 hover:underline"
                     >
                       Cancel
@@ -329,45 +719,78 @@ export default function StructurePage() {
                   <div>
                     <p className="text-sm">
                       {r.name}
-                      {r.is_active === false && (
+
+                      {r.is_active ===
+                        false && (
                         <span className="ml-2 rounded bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">
                           hidden
                         </span>
                       )}
                     </p>
-                    {secondField && secondField(r) && (
-                      <p className="mt-0.5 text-xs text-slate-500">
-                        {secondField(r)}
-                      </p>
-                    )}
+
+                    {secondField &&
+                      secondField(r) && (
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {secondField(r)}
+                        </p>
+                      )}
                   </div>
+
                   <div className="flex gap-4">
                     <button
                       onClick={() => {
                         setEditKey(key);
-                        setEditA(r.name ?? "");
+                        setEditA(
+                          r.name ?? ""
+                        );
+
                         setEditB(
-                          table === "colleges"
+                          table ===
+                            "colleges"
                             ? r.city ?? ""
-                            : table === "subjects"
-                            ? r.subject_code ?? ""
-                            : table === "semesters"
-                            ? String(r.semester_number ?? "")
-                            : r.short_name ?? ""
+                            : table ===
+                              "subjects"
+                            ? r.subject_code ??
+                              ""
+                            : table ===
+                              "semesters"
+                            ? String(
+                                r.semester_number ??
+                                  ""
+                              )
+                            : r.short_name ??
+                              ""
                         );
                       }}
                       className="text-xs font-medium text-indigo-600 hover:underline"
                     >
                       Edit
                     </button>
+
                     <button
-                      onClick={() => toggle(table, r, reload)}
+                      onClick={() =>
+                        toggle(
+                          table,
+                          r,
+                          reload
+                        )
+                      }
                       className="text-xs font-medium text-slate-600 hover:underline"
                     >
-                      {r.is_active === false ? "Show" : "Hide"}
+                      {r.is_active ===
+                      false
+                        ? "Show"
+                        : "Hide"}
                     </button>
+
                     <button
-                      onClick={() => remove(table, r, reload)}
+                      onClick={() =>
+                        remove(
+                          table,
+                          r,
+                          reload
+                        )
+                      }
                       className="text-xs font-medium text-red-600 hover:underline"
                     >
                       Delete
@@ -382,31 +805,45 @@ export default function StructurePage() {
     );
   }
 
-  if (denied)
+  if (denied) {
     return (
       <main className="flex min-h-screen items-center justify-center px-6 text-center">
         <div>
-          <h1 className="text-xl font-semibold">Access denied</h1>
-          <p className="mt-3 text-sm text-slate-600">{denied}</p>
-          <a href="/admin" className="mt-6 inline-block text-sm text-indigo-600">
+          <h1 className="text-xl font-semibold">
+            Access denied
+          </h1>
+
+          <p className="mt-3 text-sm text-slate-600">
+            {denied}
+          </p>
+
+          <a
+            href="/admin"
+            className="mt-6 inline-block text-sm text-indigo-600"
+          >
             Back to login
           </a>
         </div>
       </main>
     );
+  }
 
-  if (!ready)
+  if (!ready) {
     return (
       <main className="flex min-h-screen items-center justify-center text-sm text-slate-500">
         Loading...
       </main>
     );
+  }
 
   return (
     <main className="min-h-screen bg-slate-50">
       <header className="border-b border-white/10 bg-[#0b1020] text-white">
         <div className="mx-auto flex max-w-4xl items-center justify-between px-5 py-4">
-          <p className="text-sm font-semibold">Structure</p>
+          <p className="text-sm font-semibold">
+            Structure
+          </p>
+
           <a
             href="/admin/dashboard"
             className="rounded-lg border border-white/15 px-3 py-1.5 text-xs font-medium hover:bg-white/10"
@@ -423,38 +860,66 @@ export default function StructurePage() {
           </p>
         )}
 
-        <Panel title="Courses" subtitle="BTech, BCA, MBA and so on">
-          <form onSubmit={addCourse} className="flex flex-wrap gap-3">
+        <Panel
+          title="Courses"
+          subtitle="BTech, BCA, MBA and so on"
+        >
+          <form
+            onSubmit={addCourse}
+            className="flex flex-wrap gap-3"
+          >
             <input
               value={courseName}
-              onChange={(e) => setCourseName(e.target.value)}
+              onChange={(e) =>
+                setCourseName(
+                  e.target.value
+                )
+              }
               placeholder="Course name"
               className="field max-w-xs"
             />
-            <button type="submit" className="btn-primary">
+
+            <button
+              type="submit"
+              className="btn-primary"
+            >
               Add
             </button>
           </form>
+
           <div className="mt-4">
             <List
               table="courses"
               rows={courses}
               reload={loadCourses}
-              secondField={(r) => r.short_name ?? ""}
+              secondField={(r) =>
+                r.short_name ?? ""
+              }
               secondPlaceholder="Short name"
             />
           </div>
         </Panel>
 
-        <Panel title="Colleges" subtitle="Pick a university, then add its colleges">
+        <Panel
+          title="Colleges"
+          subtitle="Pick a university, then add its colleges"
+        >
           <select
             value={uniId}
-            onChange={(e) => setUniId(e.target.value)}
+            onChange={(e) =>
+              setUniId(e.target.value)
+            }
             className="field max-w-md"
           >
-            <option value="">Select university</option>
+            <option value="">
+              Select university
+            </option>
+
             {universities.map((u) => (
-              <option key={u.id} value={u.id}>
+              <option
+                key={u.id}
+                value={u.id}
+              >
                 {u.name}
               </option>
             ))}
@@ -462,29 +927,50 @@ export default function StructurePage() {
 
           {uniId && (
             <>
-              <form onSubmit={addCollege} className="mt-4 flex flex-wrap gap-3">
+              <form
+                onSubmit={addCollege}
+                className="mt-4 flex flex-wrap gap-3"
+              >
                 <input
                   value={collegeName}
-                  onChange={(e) => setCollegeName(e.target.value)}
+                  onChange={(e) =>
+                    setCollegeName(
+                      e.target.value
+                    )
+                  }
                   placeholder="College name"
                   className="field max-w-xs"
                 />
+
                 <input
                   value={collegeCity}
-                  onChange={(e) => setCollegeCity(e.target.value)}
+                  onChange={(e) =>
+                    setCollegeCity(
+                      e.target.value
+                    )
+                  }
                   placeholder="City"
                   className="field max-w-[160px]"
                 />
-                <button type="submit" className="btn-primary">
+
+                <button
+                  type="submit"
+                  className="btn-primary"
+                >
                   Add
                 </button>
               </form>
+
               <div className="mt-4">
                 <List
                   table="colleges"
                   rows={colleges}
-                  reload={loadColleges}
-                  secondField={(r) => r.city ?? ""}
+                  reload={() =>
+                    loadColleges()
+                  }
+                  secondField={(r) =>
+                    r.city ?? ""
+                  }
                   secondPlaceholder="City"
                 />
               </div>
@@ -492,16 +978,27 @@ export default function StructurePage() {
           )}
         </Panel>
 
-        <Panel title="Branches" subtitle="Pick a college, then add its branches">
+        <Panel
+          title="Assessment Types"
+          subtitle="Assessment names are specific to each college"
+        >
           <select
             value={collegeId}
-            onChange={(e) => setCollegeId(e.target.value)}
+            onChange={(e) =>
+              setCollegeId(e.target.value)
+            }
             disabled={!uniId}
             className="field max-w-md"
           >
-            <option value="">Select college</option>
+            <option value="">
+              Select college
+            </option>
+
             {colleges.map((c) => (
-              <option key={c.id} value={c.id}>
+              <option
+                key={c.id}
+                value={c.id}
+              >
                 {c.name}
               </option>
             ))}
@@ -509,35 +1006,219 @@ export default function StructurePage() {
 
           {collegeId && (
             <>
-              <form onSubmit={addBranch} className="mt-4 flex flex-wrap gap-3">
+              <form
+                onSubmit={addAssessmentType}
+                className="mt-4 space-y-3"
+              >
+                <div className="flex flex-wrap gap-3">
+                  <input
+                    value={assessmentName}
+                    onChange={(e) =>
+                      setAssessmentName(
+                        e.target.value
+                      )
+                    }
+                    placeholder="Assessment name (e.g. CAE 1)"
+                    className="field max-w-xs"
+                  />
+
+                  <input
+                    value={assessmentAliases}
+                    onChange={(e) =>
+                      setAssessmentAliases(
+                        e.target.value
+                      )
+                    }
+                    placeholder="Aliases: cae1, cae-1, cae i"
+                    className="field max-w-sm"
+                  />
+
+                  <button
+                    type="submit"
+                    className="btn-primary"
+                  >
+                    Add
+                  </button>
+                </div>
+
+                <p className="text-[11px] text-slate-500">
+                  Aliases help students find papers using different spellings.
+                </p>
+              </form>
+
+              <div className="mt-4">
+                {assessmentTypes.length ===
+                0 ? (
+                  <p className="text-xs text-slate-500">
+                    No assessment types added for this college yet.
+                  </p>
+                ) : (
+                  <ul className="thin-scroll max-h-80 divide-y divide-slate-100 overflow-auto rounded-xl border border-slate-100">
+                    {assessmentTypes.map(
+                      (r) => (
+                        <li
+                          key={r.id}
+                          className="px-4 py-3"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <p className="text-sm">
+                                {r.name}
+
+                                {r.is_active ===
+                                  false && (
+                                  <span className="ml-2 rounded bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">
+                                    hidden
+                                  </span>
+                                )}
+                              </p>
+
+                              {Array.isArray(
+                                r.aliases
+                              ) &&
+                                r.aliases
+                                  .length >
+                                  0 && (
+                                  <p className="mt-0.5 text-xs text-slate-500">
+                                    {r.aliases.join(
+                                      ", "
+                                    )}
+                                  </p>
+                                )}
+                            </div>
+
+                            <div className="flex gap-4">
+                              <button
+                                onClick={() =>
+                                  editAssessmentType(
+                                    r
+                                  )
+                                }
+                                className="text-xs font-medium text-indigo-600 hover:underline"
+                              >
+                                Edit
+                              </button>
+
+                              <button
+                                onClick={() =>
+                                  toggleAssessmentType(
+                                    r
+                                  )
+                                }
+                                className="text-xs font-medium text-slate-600 hover:underline"
+                              >
+                                {r.is_active ===
+                                false
+                                  ? "Show"
+                                  : "Hide"}
+                              </button>
+
+                              <button
+                                onClick={() =>
+                                  removeAssessmentType(
+                                    r
+                                  )
+                                }
+                                className="text-xs font-medium text-red-600 hover:underline"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        </li>
+                      )
+                    )}
+                  </ul>
+                )}
+              </div>
+            </>
+          )}
+        </Panel>
+
+        <Panel
+          title="Branches"
+          subtitle="Pick a college, then add its branches"
+        >
+          <select
+            value={collegeId}
+            onChange={(e) =>
+              setCollegeId(e.target.value)
+            }
+            disabled={!uniId}
+            className="field max-w-md"
+          >
+            <option value="">
+              Select college
+            </option>
+
+            {colleges.map((c) => (
+              <option
+                key={c.id}
+                value={c.id}
+              >
+                {c.name}
+              </option>
+            ))}
+          </select>
+
+          {collegeId && (
+            <>
+              <form
+                onSubmit={addBranch}
+                className="mt-4 flex flex-wrap gap-3"
+              >
                 <input
                   value={branchName}
-                  onChange={(e) => setBranchName(e.target.value)}
+                  onChange={(e) =>
+                    setBranchName(
+                      e.target.value
+                    )
+                  }
                   placeholder="Branch name"
                   className="field max-w-xs"
                 />
+
                 <select
                   value={branchCourse}
-                  onChange={(e) => setBranchCourse(e.target.value)}
+                  onChange={(e) =>
+                    setBranchCourse(
+                      e.target.value
+                    )
+                  }
                   className="field max-w-[200px]"
                 >
-                  <option value="">Course (optional)</option>
+                  <option value="">
+                    Course (optional)
+                  </option>
+
                   {courses.map((c) => (
-                    <option key={c.id} value={c.id}>
+                    <option
+                      key={c.id}
+                      value={c.id}
+                    >
                       {c.name}
                     </option>
                   ))}
                 </select>
-                <button type="submit" className="btn-primary">
+
+                <button
+                  type="submit"
+                  className="btn-primary"
+                >
                   Add
                 </button>
               </form>
+
               <div className="mt-4">
                 <List
                   table="branches"
                   rows={branches}
-                  reload={loadBranches}
-                  secondField={(r) => r.short_name ?? ""}
+                  reload={() =>
+                    loadBranches()
+                  }
+                  secondField={(r) =>
+                    r.short_name ?? ""
+                  }
                   secondPlaceholder="Short name"
                 />
               </div>
@@ -545,16 +1226,27 @@ export default function StructurePage() {
           )}
         </Panel>
 
-        <Panel title="Semesters" subtitle="Pick a branch, then add its semesters">
+        <Panel
+          title="Semesters"
+          subtitle="Pick a branch, then add its semesters"
+        >
           <select
             value={branchId}
-            onChange={(e) => setBranchId(e.target.value)}
+            onChange={(e) =>
+              setBranchId(e.target.value)
+            }
             disabled={!collegeId}
             className="field max-w-md"
           >
-            <option value="">Select branch</option>
+            <option value="">
+              Select branch
+            </option>
+
             {branches.map((b) => (
-              <option key={b.id} value={b.id}>
+              <option
+                key={b.id}
+                value={b.id}
+              >
                 {b.name}
               </option>
             ))}
@@ -562,32 +1254,54 @@ export default function StructurePage() {
 
           {branchId && (
             <>
-              <form onSubmit={addSemester} className="mt-4 flex flex-wrap gap-3">
+              <form
+                onSubmit={addSemester}
+                className="mt-4 flex flex-wrap gap-3"
+              >
                 <input
                   value={semNumber}
-                  onChange={(e) => setSemNumber(e.target.value)}
+                  onChange={(e) =>
+                    setSemNumber(
+                      e.target.value
+                    )
+                  }
                   placeholder="Number"
                   type="number"
                   min={1}
                   max={12}
                   className="field max-w-[110px]"
                 />
+
                 <input
                   value={semName}
-                  onChange={(e) => setSemName(e.target.value)}
+                  onChange={(e) =>
+                    setSemName(
+                      e.target.value
+                    )
+                  }
                   placeholder="Label (optional)"
                   className="field max-w-xs"
                 />
-                <button type="submit" className="btn-primary">
+
+                <button
+                  type="submit"
+                  className="btn-primary"
+                >
                   Add
                 </button>
               </form>
+
               <div className="mt-4">
                 <List
                   table="semesters"
                   rows={semesters}
-                  reload={loadSemesters}
-                  secondField={(r) => "Semester " + r.semester_number}
+                  reload={() =>
+                    loadSemesters()
+                  }
+                  secondField={(r) =>
+                    "Semester " +
+                    r.semester_number
+                  }
                   secondPlaceholder="Number"
                 />
               </div>
@@ -595,16 +1309,29 @@ export default function StructurePage() {
           )}
         </Panel>
 
-        <Panel title="Subjects" subtitle="Pick a semester, then add its subjects">
+        <Panel
+          title="Subjects"
+          subtitle="Pick a semester, then add its subjects"
+        >
           <select
             value={semesterId}
-            onChange={(e) => setSemesterId(e.target.value)}
+            onChange={(e) =>
+              setSemesterId(
+                e.target.value
+              )
+            }
             disabled={!branchId}
             className="field max-w-md"
           >
-            <option value="">Select semester</option>
+            <option value="">
+              Select semester
+            </option>
+
             {semesters.map((s) => (
-              <option key={s.id} value={s.id}>
+              <option
+                key={s.id}
+                value={s.id}
+              >
                 {s.name}
               </option>
             ))}
@@ -612,29 +1339,50 @@ export default function StructurePage() {
 
           {semesterId && (
             <>
-              <form onSubmit={addSubject} className="mt-4 flex flex-wrap gap-3">
+              <form
+                onSubmit={addSubject}
+                className="mt-4 flex flex-wrap gap-3"
+              >
                 <input
                   value={subjectName}
-                  onChange={(e) => setSubjectName(e.target.value)}
+                  onChange={(e) =>
+                    setSubjectName(
+                      e.target.value
+                    )
+                  }
                   placeholder="Subject name"
                   className="field max-w-xs"
                 />
+
                 <input
                   value={subjectCode}
-                  onChange={(e) => setSubjectCode(e.target.value)}
+                  onChange={(e) =>
+                    setSubjectCode(
+                      e.target.value
+                    )
+                  }
                   placeholder="Code"
                   className="field max-w-[160px]"
                 />
-                <button type="submit" className="btn-primary">
+
+                <button
+                  type="submit"
+                  className="btn-primary"
+                >
                   Add
                 </button>
               </form>
+
               <div className="mt-4">
                 <List
                   table="subjects"
                   rows={subjects}
-                  reload={loadSubjects}
-                  secondField={(r) => r.subject_code ?? ""}
+                  reload={() =>
+                    loadSubjects()
+                  }
+                  secondField={(r) =>
+                    r.subject_code ?? ""
+                  }
                   secondPlaceholder="Code"
                 />
               </div>

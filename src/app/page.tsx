@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { supabase, MATERIAL_TYPES, EXAM_TYPES, labelOf } from "@/lib/supabase";
+import { supabase, MATERIAL_TYPES, labelOf } from "@/lib/supabase";
 import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
 
@@ -62,7 +62,10 @@ export default function HomePage() {
   const [semesterId, setSemesterId] = useState("");
   const [commonFirstYear, setCommonFirstYear] = useState(false);
   const [subjectId, setSubjectId] = useState("");
+
+  // College-wise assessment system
   const [examType, setExamType] = useState("");
+  const [assessmentTypes, setAssessmentTypes] = useState<Row[]>([]);
 
   const [recent, setRecent] = useState<Row[]>([]);
 
@@ -73,6 +76,7 @@ export default function HomePage() {
         .select("id, name, short_name")
         .eq("is_active", true)
         .order("name");
+
       setUniversities(data ?? []);
 
       const { data: latest } = await supabase
@@ -83,20 +87,31 @@ export default function HomePage() {
         .eq("is_published", true)
         .order("created_at", { ascending: false })
         .limit(6);
+
       setRecent(latest ?? []);
     }
+
     init();
   }, []);
 
+  // University changed
   useEffect(() => {
     setCollegeId("");
     setBranchId("");
     setSemesterId("");
     setSubjectId("");
+    setExamType("");
+
     setBranches([]);
     setSemesters([]);
     setSubjects([]);
-    if (!uniId) return setColleges([]);
+    setAssessmentTypes([]);
+
+    if (!uniId) {
+      setColleges([]);
+      return;
+    }
+
     supabase
       .from("colleges")
       .select("id, name, city")
@@ -106,13 +121,34 @@ export default function HomePage() {
       .then(({ data }) => setColleges(data ?? []));
   }, [uniId]);
 
+  // College changed
   useEffect(() => {
     setBranchId("");
     setSemesterId("");
     setSubjectId("");
+    setExamType("");
+
     setSemesters([]);
     setSubjects([]);
-    if (!collegeId) return setBranches([]);
+    setAssessmentTypes([]);
+
+    if (!collegeId) {
+      setBranches([]);
+      return;
+    }
+
+    // Load assessments belonging ONLY to the selected college
+    supabase
+      .from("college_assessment_types")
+      .select("id, name, slug, aliases")
+      .eq("college_id", collegeId)
+      .eq("is_active", true)
+      .order("name")
+      .then(({ data }) => {
+        setAssessmentTypes(data ?? []);
+      });
+
+    // Load branches belonging to the selected college
     supabase
       .from("branches")
       .select("id, name, course_id")
@@ -122,6 +158,7 @@ export default function HomePage() {
       .then(({ data }) => setBranches(data ?? []));
   }, [collegeId]);
 
+  // Branch changed
   useEffect(() => {
     setSemesterId("");
     setYearNumber("");
@@ -137,9 +174,11 @@ export default function HomePage() {
     }
 
     const selectedBranch = branches.find((b) => b.id === branchId);
+
     const btech =
       selectedBranch?.course_id ===
       "06b26861-845e-4c61-9a50-815947500594";
+
     setIsBtech(Boolean(btech));
 
     supabase
@@ -150,24 +189,33 @@ export default function HomePage() {
       .order("semester_number")
       .then(({ data }) => {
         const next = data ?? [];
+
         setSemesters(next);
 
         if (btech) {
           const yearValues: number[] = next
             .map((r: Row) => Number(r.year_number))
             .filter((n: number) => n >= 1 && n <= 4);
-          const uniqueYears: number[] = Array.from(new Set<number>(yearValues)).sort(
-            (a, b) => a - b
-          );
+
+          const uniqueYears: number[] = Array.from(
+            new Set<number>(yearValues)
+          ).sort((a, b) => a - b);
+
           setYears(uniqueYears);
         }
       });
   }, [branchId, branches]);
 
+  // Semester / year changed
   useEffect(() => {
     setSubjectId("");
+
     if (!isBtech) {
-      if (!semesterId) return setSubjects([]);
+      if (!semesterId) {
+        setSubjects([]);
+        return;
+      }
+
       supabase
         .from("subjects")
         .select("id, name, subject_code")
@@ -175,18 +223,27 @@ export default function HomePage() {
         .eq("is_active", true)
         .order("name")
         .then(({ data }) => setSubjects(data ?? []));
+
       return;
     }
 
-    if (!yearNumber || !branchId) return setSubjects([]);
+    if (!yearNumber || !branchId) {
+      setSubjects([]);
+      return;
+    }
 
     const year = Number(yearNumber);
+
     const yearSemesters = semesters.filter(
       (r: Row) => Number(r.year_number) === year
     );
+
     const semIds = yearSemesters.map((r: Row) => r.id);
 
-    if (semIds.length === 0) return setSubjects([]);
+    if (semIds.length === 0) {
+      setSubjects([]);
+      return;
+    }
 
     supabase
       .from("subjects")
@@ -195,11 +252,19 @@ export default function HomePage() {
       .eq("is_active", true)
       .order("name")
       .then(({ data }) => setSubjects(data ?? []));
-  }, [isBtech, yearNumber, semesterId, branchId, semesters]);
+  }, [
+    isBtech,
+    yearNumber,
+    semesterId,
+    branchId,
+    semesters,
+  ]);
 
   function runSearch(e: React.FormEvent) {
     e.preventDefault();
+
     if (!q.trim()) return;
+
     router.push("/search?q=" + encodeURIComponent(q.trim()));
   }
 
@@ -207,7 +272,9 @@ export default function HomePage() {
     const params = new URLSearchParams();
 
     if (isBtech) {
-      if (yearNumber) params.set("year", yearNumber);
+      if (yearNumber) {
+        params.set("year", yearNumber);
+      }
 
       if (commonFirstYear && yearNumber === "1") {
         params.set("common_first_year", "1");
@@ -221,14 +288,23 @@ export default function HomePage() {
         params.set("university", uniId);
       }
     } else {
-      if (subjectId) params.set("subject", subjectId);
-      else if (semesterId) params.set("semester", semesterId);
-      else if (branchId) params.set("branch", branchId);
-      else if (collegeId) params.set("college", collegeId);
-      else if (uniId) params.set("university", uniId);
+      if (subjectId) {
+        params.set("subject", subjectId);
+      } else if (semesterId) {
+        params.set("semester", semesterId);
+      } else if (branchId) {
+        params.set("branch", branchId);
+      } else if (collegeId) {
+        params.set("college", collegeId);
+      } else if (uniId) {
+        params.set("university", uniId);
+      }
     }
 
-    if (examType) params.set("exam", examType);
+    if (examType) {
+      params.set("exam", examType);
+    }
+
     router.push("/search?" + params.toString());
   }
 
@@ -249,7 +325,8 @@ export default function HomePage() {
       set: setCollegeId,
       rows: colleges,
       disabled: !uniId,
-      render: (r: Row) => r.name + (r.city ? " - " + r.city : ""),
+      render: (r: Row) =>
+        r.name + (r.city ? " - " + r.city : ""),
     },
     {
       n: 3,
@@ -272,7 +349,15 @@ export default function HomePage() {
             },
             rows: years.map((year) => ({
               id: String(year),
-              name: `${year === 1 ? "1st" : year === 2 ? "2nd" : year === 3 ? "3rd" : "4th"} Year`,
+              name: `${
+                year === 1
+                  ? "1st"
+                  : year === 2
+                  ? "2nd"
+                  : year === 3
+                  ? "3rd"
+                  : "4th"
+              } Year`,
             })),
             disabled: !branchId,
             render: (r: Row) => r.name,
@@ -285,7 +370,8 @@ export default function HomePage() {
             rows: subjects,
             disabled: !yearNumber || commonFirstYear,
             render: (r: Row) =>
-              r.name + (r.subject_code ? " - " + r.subject_code : ""),
+              r.name +
+              (r.subject_code ? " - " + r.subject_code : ""),
           },
         ]
       : [
@@ -306,7 +392,8 @@ export default function HomePage() {
             rows: subjects,
             disabled: !semesterId,
             render: (r: Row) =>
-              r.name + (r.subject_code ? " - " + r.subject_code : ""),
+              r.name +
+              (r.subject_code ? " - " + r.subject_code : ""),
           },
         ]),
   ];
@@ -319,6 +406,7 @@ export default function HomePage() {
         {/* ---------------- HERO ---------------- */}
         <section className="relative overflow-hidden bg-[#0b1020] text-white">
           <div className="grid-bg absolute inset-0" />
+
           <div
             className="glow"
             style={{
@@ -329,6 +417,7 @@ export default function HomePage() {
               left: -80,
             }}
           />
+
           <div
             className="glow"
             style={{
@@ -372,6 +461,7 @@ export default function HomePage() {
                   className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3.5 text-sm text-white placeholder:text-slate-500 outline-none transition focus:border-indigo-400/60 focus:bg-white/10"
                 />
               </div>
+
               <button
                 type="submit"
                 className="rounded-xl bg-white px-7 py-3.5 text-sm font-semibold text-[#0b1020] transition hover:bg-slate-200"
@@ -381,19 +471,24 @@ export default function HomePage() {
             </form>
 
             <div className="rise rise-4 mt-4 flex flex-wrap gap-2">
-              {["CAE 1", "CAE 2", "Engineering Mathematics", "Physics"].map(
-                (t) => (
-                  <button
-                    key={t}
-                    onClick={() =>
-                      router.push("/search?q=" + encodeURIComponent(t))
-                    }
-                    className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 transition hover:border-white/25 hover:text-white"
-                  >
-                    {t}
-                  </button>
-                )
-              )}
+              {[
+                "CAE 1",
+                "CAE 2",
+                "Engineering Mathematics",
+                "Physics",
+              ].map((t) => (
+                <button
+                  key={t}
+                  onClick={() =>
+                    router.push(
+                      "/search?q=" + encodeURIComponent(t)
+                    )
+                  }
+                  className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 transition hover:border-white/25 hover:text-white"
+                >
+                  {t}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -408,10 +503,12 @@ export default function HomePage() {
                 <h2 className="text-lg font-semibold tracking-tight">
                   Find it step by step
                 </h2>
+
                 <p className="mt-1 text-sm text-slate-500">
                   Each dropdown only shows what actually exists.
                 </p>
               </div>
+
               <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-500">
                 {universities.length} universities
               </span>
@@ -432,8 +529,10 @@ export default function HomePage() {
                     >
                       {s.n}
                     </span>
+
                     {s.label}
                   </span>
+
                   <select
                     value={s.value}
                     onChange={(e) => s.set(e.target.value)}
@@ -441,8 +540,12 @@ export default function HomePage() {
                     className="field"
                   >
                     <option value="">
-                      {s.disabled ? "Choose the step above" : "Select " + s.label.toLowerCase()}
+                      {s.disabled
+                        ? "Choose the step above"
+                        : "Select " +
+                          s.label.toLowerCase()}
                     </option>
+
                     {s.rows.map((r) => (
                       <option key={r.id} value={r.id}>
                         {s.render(r)}
@@ -459,14 +562,19 @@ export default function HomePage() {
                     checked={commonFirstYear}
                     onChange={(e) => {
                       setCommonFirstYear(e.target.checked);
-                      if (e.target.checked) setSubjectId("");
+
+                      if (e.target.checked) {
+                        setSubjectId("");
+                      }
                     }}
                     className="h-4 w-4"
                   />
+
                   <span>
                     <span className="block text-sm font-semibold text-slate-800">
                       Common to all B.Tech branches
                     </span>
+
                     <span className="mt-0.5 block text-xs text-slate-500">
                       Show approved first-year papers marked as common.
                     </span>
@@ -474,6 +582,7 @@ export default function HomePage() {
                 </label>
               )}
 
+              {/* ---------------- COLLEGE-WISE ASSESSMENT ---------------- */}
               <label className="block">
                 <span className="mb-1.5 flex items-center gap-2 text-xs font-medium text-slate-500">
                   <span
@@ -482,17 +591,28 @@ export default function HomePage() {
                   >
                     6
                   </span>
+
                   Exam (optional)
                 </span>
+
                 <select
                   value={examType}
                   onChange={(e) => setExamType(e.target.value)}
+                  disabled={!collegeId}
                   className="field"
                 >
-                  <option value="">Any exam</option>
-                  {EXAM_TYPES.map((x) => (
-                    <option key={x.value} value={x.value}>
-                      {x.label}
+                  <option value="">
+                    {!collegeId
+                      ? "Select college first"
+                      : "Any exam"}
+                  </option>
+
+                  {assessmentTypes.map((assessment) => (
+                    <option
+                      key={assessment.id}
+                      value={assessment.slug}
+                    >
+                      {assessment.name}
                     </option>
                   ))}
                 </select>
@@ -502,11 +622,16 @@ export default function HomePage() {
             <div className="mt-7 flex flex-wrap items-center gap-4">
               <button
                 onClick={runFilters}
-                disabled={!uniId || (isBtech && (!branchId || !yearNumber))}
+                disabled={
+                  !uniId ||
+                  (isBtech &&
+                    (!branchId || !yearNumber))
+                }
                 className="btn-primary"
               >
                 Show materials
               </button>
+
               <span className="text-xs text-slate-500">
                 You can stop at any level and still see everything inside it.
               </span>
@@ -519,6 +644,7 @@ export default function HomePage() {
           <h2 className="text-2xl font-semibold tracking-tight">
             What you will find inside
           </h2>
+
           <p className="mt-2 text-sm text-slate-500">
             Six kinds of material, each one tagged by exam and year.
           </p>
@@ -533,10 +659,15 @@ export default function HomePage() {
                 <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 text-sm font-semibold text-slate-700">
                   {String(i + 1).padStart(2, "0")}
                 </span>
-                <p className="mt-5 text-[15px] font-semibold">{c.title}</p>
+
+                <p className="mt-5 text-[15px] font-semibold">
+                  {c.title}
+                </p>
+
                 <p className="mt-2 text-sm leading-relaxed text-slate-500">
                   {c.desc}
                 </p>
+
                 <p className="mt-5 text-xs font-medium text-indigo-600 opacity-0 transition group-hover:opacity-100">
                   Browse
                 </p>
@@ -553,6 +684,7 @@ export default function HomePage() {
                 <h2 className="text-2xl font-semibold tracking-tight">
                   Recently added
                 </h2>
+
                 <Link
                   href="/search"
                   className="text-sm font-medium text-indigo-600 hover:underline"
@@ -570,7 +702,10 @@ export default function HomePage() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="text-sm font-semibold">{m.title}</p>
+                        <p className="text-sm font-semibold">
+                          {m.title}
+                        </p>
+
                         <p className="mt-1 text-xs text-slate-500">
                           {m.subjects?.name}
                           {m.subjects?.subject_code
@@ -578,8 +713,12 @@ export default function HomePage() {
                             : ""}
                         </p>
                       </div>
+
                       <span className="whitespace-nowrap rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700">
-                        {labelOf(MATERIAL_TYPES, m.material_type)}
+                        {labelOf(
+                          MATERIAL_TYPES,
+                          m.material_type
+                        )}
                       </span>
                     </div>
                   </Link>
@@ -593,6 +732,7 @@ export default function HomePage() {
         <section className="mx-auto max-w-6xl px-5 py-20">
           <div className="relative overflow-hidden rounded-3xl bg-[#0b1020] px-8 py-14 text-white sm:px-14">
             <div className="grid-bg absolute inset-0 opacity-60" />
+
             <div
               className="glow"
               style={{
@@ -603,26 +743,41 @@ export default function HomePage() {
                 right: -60,
               }}
             />
+
             <div className="relative max-w-2xl">
               <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
                 Online viewing & offline downloading
               </h2>
+
               <p className="mt-4 text-sm leading-relaxed text-slate-400">
                 Every PDF is securely stored. Open papers online for quick
                 revision, or download available PDFs for offline preparation.
                 Your study material stays organised and accessible whenever you need it.
               </p>
+
               <div className="mt-8 grid gap-4 sm:grid-cols-3">
                 {[
-                 ["Secure storage", "Your study material stays protected"],
-                 ["Online viewing", "Read papers instantly in your browser"],
-                 ["Offline downloads", "Download enabled PDFs and study anywhere"],
-                 ].map(([t, d]) => (
+                  [
+                    "Secure storage",
+                    "Your study material stays protected",
+                  ],
+                  [
+                    "Online viewing",
+                    "Read papers instantly in your browser",
+                  ],
+                  [
+                    "Offline downloads",
+                    "Download enabled PDFs and study anywhere",
+                  ],
+                ].map(([t, d]) => (
                   <div
                     key={t}
                     className="rounded-2xl border border-white/10 bg-white/5 p-5"
                   >
-                    <p className="text-sm font-semibold">{t}</p>
+                    <p className="text-sm font-semibold">
+                      {t}
+                    </p>
+
                     <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
                       {d}
                     </p>
@@ -632,16 +787,15 @@ export default function HomePage() {
             </div>
           </div>
         </section>
-            </main>
+      </main>
 
-         <div className="border-t border-slate-200 bg-white px-5 py-8 text-center">
-         
-         <p className="mt-1 text-xs text-slate-400">
+      <div className="border-t border-slate-200 bg-white px-5 py-8 text-center">
+        <p className="mt-1 text-xs text-slate-400">
           Built for students, by students.
-         </p>
-        </div>
+        </p>
+      </div>
 
-        <SiteFooter />
-        </div>
+      <SiteFooter />
+    </div>
   );
 }
