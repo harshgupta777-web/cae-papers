@@ -21,7 +21,9 @@ function normalize(value: string | null | undefined) {
 }
 
 function cleanSlug(value: string | null | undefined) {
-  return normalize(value).replace(/[\s-]+/g, "");
+  return normalize(value)
+    .replace(/[\s-]+/g, "")
+    .replace(/^seassonal/, "seasonal");
 }
 
 function academicYearMatches(value: string | null | undefined, requested: string) {
@@ -121,7 +123,7 @@ function Results() {
         // University -> College -> Course -> Branch -> Study Year -> Subject
         // -> Assessment hierarchy, so the browser does not need to perform
         // fragile multi-table discovery or raw .or() filters.
-        const { data, error: rpcError } = await supabase.rpc("search_ourprep", {
+        const { data, error: rpcError } = await supabase.rpc("search_ourprep_v5", {
           search_query: rpcQuery,
           result_limit: 200,
         });
@@ -153,16 +155,7 @@ function Results() {
 
         // Defensive fallback for an older RPC deployment: if the RPC returns
         // no rows for an empty search, load published materials directly.
-        if (!raw && resultRows.length === 0) {
-          const { data: fallback, error: fallbackError } = await supabase
-            .from("materials")
-            .select("id,title,material_type,exam_type,academic_year,view_count,created_at,subject_id,is_common_first_year")
-            .eq("is_published", true)
-            .order("created_at", { ascending: false })
-            .limit(200);
-          if (fallbackError) throw fallbackError;
-          resultRows = ((fallback ?? []) as Row[]);
-        }
+       
 
         if (raw) {
           trackEvent({ event_type: "search", search_query: raw, result_count: resultRows.length, page_path: "/search" });
