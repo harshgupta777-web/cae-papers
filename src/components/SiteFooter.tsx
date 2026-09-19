@@ -4,7 +4,7 @@ export default function SiteFooter() {
   return (
     <footer className="border-t border-slate-200 bg-[#0b1020] text-slate-300">
       <div className="mx-auto max-w-6xl px-5 py-14">
-        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-6">
 
           {/* Brand */}
           <div className="lg:col-span-2">
@@ -111,21 +111,59 @@ export default function SiteFooter() {
               </Link>
 
               <a
-                href="https://www.instagram.com/ourprep.in?stkn=M2Vmc3ZkenpvMGF3"
+                href="https://www.instagram.com/ourprep.in"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="transition-colors hover:text-white"
               >
                 Follow us on Instagram ↗
               </a>
+
               <a
                 href="https://www.linkedin.com/company/ourprep"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="transition-colors hover:text-white"
               >
-                Follow us on Linkedin ↗
+                Follow us on LinkedIn ↗
               </a>
+            </div>
+          </div>
+
+          {/* Legal */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+              Legal
+            </p>
+
+            <div className="mt-4 flex flex-col gap-2.5 text-sm">
+              <Link
+                href="/privacy"
+                className="transition-colors hover:text-white"
+              >
+                Privacy Policy
+              </Link>
+
+              <Link
+                href="/terms"
+                className="transition-colors hover:text-white"
+              >
+                Terms of Use
+              </Link>
+
+              <Link
+                href="/disclaimer"
+                className="transition-colors hover:text-white"
+              >
+                Disclaimer
+              </Link>
+
+              <Link
+                href="/copyright"
+                className="transition-colors hover:text-white"
+              >
+                Copyright & Takedown
+              </Link>
             </div>
           </div>
         </div>
@@ -138,10 +176,7 @@ export default function SiteFooter() {
               site owner.
             </p>
 
-            <p className="text-sm font-medium text-slate-300">
-              Made with <span className="text-red-400">❤️</span> by Harsh,
-              Bhavishay and Chandra Prakash
-            </p>
+            
 
             <p className="text-xs text-slate-500">
               Built for students, by students.
