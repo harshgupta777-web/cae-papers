@@ -123,7 +123,7 @@ function Results() {
         // University -> College -> Course -> Branch -> Study Year -> Subject
         // -> Assessment hierarchy, so the browser does not need to perform
         // fragile multi-table discovery or raw .or() filters.
-        const { data, error: rpcError } = await supabase.rpc("search_ourprep_v5", {
+        const { data, error: rpcError } = await supabase.rpc("search_ourprep_v6", {
           search_query: rpcQuery,
           result_limit: 200,
         });
